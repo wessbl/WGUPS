@@ -11,6 +11,7 @@ class Truck:
     def __init__(self, id, packages):
         self.id = id
         self.time = time(8)
+        self.miles = 0
         self.speed = 18     #miles per hour
         self.max_packages = 16     #max amount of packages
 
@@ -28,10 +29,11 @@ class Truck:
     def drive(self, miles):
         self.miles += miles
         self.time = self.time + time(miles * 18)
+        print("Truck %d drove %s miles" % self.id, miles)
 
     # Truck info in one string
     def to_string(self):
-        return "Truck " + id + " at " + self.time + ": " + self.miles + "miles"
+        return "Truck " + str(self.id) + " at " + str(self.time) + ": " + str(self.miles) + "miles"
 
 # A class that represents a Package needing to be delivered, with
 #   id (int)
