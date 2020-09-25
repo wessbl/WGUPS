@@ -1,4 +1,5 @@
 from datetime import time
+from datetime import timedelta
 
 # A class that represents a Truck object, with
 #   id (int)
@@ -10,10 +11,10 @@ class Truck:
     # Ctor, start time at 8
     def __init__(self, id, packages):
         self.id = id
-        self.time = time(8)
-        self.miles = 0
-        self.speed = 18     #miles per hour
-        self.max_packages = 16     #max amount of packages
+        self.time = timedelta(hours=8)  #start at 8 am
+        self.miles = 0.0
+        self.speed = 18.0               #miles per hour
+        self.max_packages = 16          #max amount of packages
 
     @property
     def packages(self):
@@ -23,17 +24,18 @@ class Truck:
         if list.length > self.max_packages:
             # TODO throw Exception("Trucks cannot carry this many packages!")
             return
-
+        self.packages = list
 
     # Drive the truck (adds time and mileage)
-    def drive(self, miles):
-        self.miles += miles
-        self.time = self.time + time(miles * 18)
-        print("Truck %d drove %s miles" % self.id, miles)
+    def drive(self, dist):
+        self.miles += dist
+        elapsed = timedelta(hours=dist / self.speed)
+        self.time += elapsed
+        print("Truck ", self.id, " drove ", dist, " miles", sep='')
 
     # Truck info in one string
     def to_string(self):
-        return "Truck " + str(self.id) + " at " + str(self.time) + ": " + str(self.miles) + "miles"
+        return "Truck " + str(self.id) + " at " + str(self.time) + ": " + str(self.miles) + " miles"
 
 # A class that represents a Package needing to be delivered, with
 #   id (int)

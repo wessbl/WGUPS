@@ -18,7 +18,7 @@ from WGUPS_Objects import Truck, Package, PackageTable, Location, Map
 
 # MAIN CLASS: Facilitates user interaction, and holds all instance data
 # Instantiate all variables
-trucks = [Truck(1, {}), Truck(2, {})]
+trucks = [Truck(1, list()), Truck(2, {})]
 # TODO packages = PackageTable()
 
 # ***** The Delivery Algorithm ***** #
@@ -26,7 +26,7 @@ trucks = [Truck(1, {}), Truck(2, {})]
 # TODO If so, plan on delivering early-ETA packages first, then fill in the time gaps with as many packages as possible
 
 # TODO Temp testing
-trucks[0].drive = 2.0
-trucks[1].drive = 3.55
+trucks[0].drive(2.0)
+trucks[1].drive(3.55)
 print(trucks[0].to_string())
 print(trucks[1].to_string())
