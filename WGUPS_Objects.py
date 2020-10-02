@@ -22,18 +22,7 @@ class Truck:
         self.max_packages = max_packages  # max amount of packages
         self.location = 0  # current location
         self.last_pkg_loc = 0  # the location of its last package
-        self.pkgs = []  # an ordered list of packages (which define the route)
-
-    @property
-    def packages(self):
-        return self.packages
-
-    @packages.setter
-    def packages(self, list):
-        if list.length > self.max_packages:
-            # TODO throw Exception("Trucks cannot carry this many packages!")
-            return
-        self.packages = list
+        self.packages = []  # an ordered list of packages (which define the route)
 
     # Drive the truck (adds time and mileage)
     def drive(self, dist):
@@ -43,7 +32,7 @@ class Truck:
         print("Truck ", self.id, " drove ", dist, " miles", sep='')
 
     def add_pkg(self, pkg):
-        self.pkgs.append(pkg)
+        self.packages.append(pkg)
         self.last_pkg_loc = pkg.loc_id
 
     # Truck info in one string
@@ -103,16 +92,17 @@ class PkgNode:
 
 # A hash table with a given size
 class PkgHashTable:
-    def __init__(self, size):
-        self.size = size
+    def __init__(self, arr_size):
+        self.arr_size = arr_size
         self.arr = [PkgNode(Package(-1, "", "", "", "", "", ""))]  # -1 is the sign of an empty bucket)
-        for i in range(size - 1):
+        for i in range(arr_size - 1):
             self.arr.append(PkgNode(Package(-1, "", "", "", "", "", "")))
+        self.len = 0
 
     # Insert a new node onto the hash table
     def insert(self, id, address, city, zip, deadline, mass, status="At Warehouse"):
         pkg = Package(id, address, city, zip, deadline, mass, status)
-        pkg_hash = pkg.id % self.size
+        pkg_hash = pkg.id % self.arr_size
         node = self.arr[pkg_hash]  # a node that will help us traverse the hash table
         if node.pkg.id == -1:
             node.pkg = pkg
@@ -120,10 +110,30 @@ class PkgHashTable:
             while node.next:
                 node = node.next
             node.next = PkgNode(pkg)
+        self.len += 1
+
+    # Insert a new node onto the hash table
+    def remove(self, id):
+        # Check if it exists on the table
+        if self.lookup(id) is None:
+            return
+
+        # Find the node
+        pkg_hash = id % self.arr_size
+        node = self.arr[pkg_hash]
+        prev_node = self.arr[pkg_hash]
+        if node.pkg.id == id:                   # If it's first in the bucket, assign bucket to second node
+            self.arr[pkg_hash] = node.next
+            self.len -= 1
+            return
+        while node.next.pkg.id != id:
+            node = node.next
+        node.next = node.next.next              # Assign node.next to the node after the target
+        self.len -= 1
 
     # A lookup function that takes a pkg id and returns the Package object with the id; or None if none is found.
     def lookup(self, id):
-        pkg_hash = id % self.size
+        pkg_hash = id % self.arr_size
         node = self.arr[pkg_hash]  # a node that will help us traverse the hash table
         if node.pkg.id == -1:  # if it's an empty bucket
             return None
@@ -140,7 +150,7 @@ class PkgHashTable:
     # Defining the string function (for easier debugging)
     def __str__(self):
         s = ""
-        for i in range(self.size):
+        for i in range(self.arr_size):
             s += str(i) + ":\t\t"
             node = self.arr[i]
             while node is not None:
@@ -331,7 +341,7 @@ class Map:
         adj_dict = {}
         for i in range(len(self.distances)):
             adj_dict[i] = self.distances[x][i]
-        sorted(adj_dict, key=lambda x:x[1])
+        return sorted(adj_dict.items(), key=lambda x: x[1])
 
     # Looks up address and zip for a match, then returns a location id if a match is found
     @staticmethod

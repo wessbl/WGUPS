@@ -22,8 +22,10 @@ from datetime import timedelta
 # Define variables that will be needed to run a scenario
 num_trucks = 2
 truck_speed = 18.0
-max_packages = 16   # per truck
+max_packages = 16  # per truck
+hash_tbl_size = 16
 map = Map()
+
 
 # * * * * *   Simulate Function   * * * * * #
 # Simulates the WGUPS workday, printing package status updates between 2 given times. This function
@@ -43,12 +45,18 @@ def simulate(status_time):
     # 2- Load the trucks, and provide a route
     # 3- Initiate simulation, keeping track of the time
     # 4- Update as needed (new packages arrive at warehouse, package updates, etc)
-    get_routes(trucks, pkgs)
+    #TODO get_routes(trucks, pkgs)
+
+    # TODO debug
+    x = map.min_dist(0)
+    for l in x:
+        print(l[0])
 
     # Wait for user to continue
     print("Press enter to continue...", end='')
     input()
     print("\n\n")
+
 
 # The algorithm that assigns packages to trucks and plans the route
 def get_routes(trucks, pkgs):
@@ -56,24 +64,29 @@ def get_routes(trucks, pkgs):
     available_pkgs = []
     for p in pkgs:
         if p.truck is None:
-            available_pkgs.append(p)
+            available_pkgs.append(p.id)
 
-    # Add one pkg to each truck until they're all loaded
-    while len(available_pkgs) > 0:
+    # Monitor if trucks are full
+    # trucks_full = []
+    # for t in trucks:
+    #    trucks_full.append(False)
+
+    # As long as trucks have room & pkgs are available, add one pkg to each truck
+    while len(available_pkgs) > 0: # and trucks_full.__contains__(False):
         for t in trucks:
-            for loc in map.min_dist(t.last_pkg_loc):
-                for p in pkgs:
-                    if p.loc_id == loc:
-                        t.add_pkg(p)
-                        available_pkgs.remove(p)
-                        break
-                break
-            break
-
-
-            break # TODO DEBUG
-        break #TODO DEbug
-
+            # Mark full trucks to break while loop
+            # if t.max_packages == len(t.packages):
+            #    trucks_full[t.id] = True
+            #    print("Truck ", t.id, " full")
+            #    continue
+            for loc in map.min_dist(t.last_pkg_loc):  # Get the closest locations
+                print("Truck ", t.id, " loc ", loc[0])
+                id = loc[0]
+                if available_pkgs.__contains__(id):  # If a pkg is available for a loc, add it
+                    t.add_pkg(pkgs.lookup(id))
+                    available_pkgs.remove(id)
+                    print("Added pkg# ", id, " to truck# ", t.id, ". ", str(len(available_pkgs)), " remaining", sep='')
+                    break  # Go to next truck
 
 
 # TODO Check if there are (or will be?) packages not loaded on a truck
