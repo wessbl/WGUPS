@@ -16,35 +16,66 @@
 # which packages are at the hub, and which are en route. The intent is to use this program for this specific location
 # and to use the same program in different cities as WGUPS expands its business.
 
-from WGUPS_Objects import Truck, Package, Location, Map, pkg_hash_table, load_pkgs
+from WGUPS_Objects import Truck, Package, Location, Map, PkgHashTable, load_pkgs
 from datetime import timedelta
 
-
-# Reorder function: The essential algorithm of the project. Called by the simulate function, defines the routes that
-# trucks will take to deliver packages, and returns to the simulation.
-def reorder(trucks, packages):
-    return  # TODO delete
-
+# Define variables that will be needed to run a scenario
+num_trucks = 2
+truck_speed = 18.0
+max_packages = 16   # per truck
+map = Map()
 
 # * * * * *   Simulate Function   * * * * * #
 # Simulates the WGUPS workday, printing package status updates between 2 given times. This function
 # is the "clock" of the simulation, its only logic is to make sure the timeline is correct. Other functions are used for
 # the actual algorithm
 def simulate(status_time):
-    print("\n\n\nPrint statuses at ", status_time)
+    print("\n\n\nStatuses at ", status_time)
     # Instantiate all variables
-    trucks = [Truck(1, list()), Truck(2, {})]
-    pkgs = pkg_hash_table(16)
+    trucks = []
+    for i in range(num_trucks):
+        trucks.append(Truck(i, truck_speed, max_packages))
+    pkgs = PkgHashTable(16)
     load_pkgs(pkgs)
-    print(pkgs)
+
+    # * * * * *   The Delivery Algorithm   * * * * * #
+    # 1- Choose a route for x trucks
+    # 2- Load the trucks, and provide a route
+    # 3- Initiate simulation, keeping track of the time
+    # 4- Update as needed (new packages arrive at warehouse, package updates, etc)
+    get_routes(trucks, pkgs)
 
     # Wait for user to continue
     print("Press enter to continue...", end='')
     input()
     print("\n\n")
 
+# The algorithm that assigns packages to trucks and plans the route
+def get_routes(trucks, pkgs):
+    # Get all unloaded pkg IDs
+    available_pkgs = []
+    for p in pkgs:
+        if p.truck is None:
+            available_pkgs.append(p)
 
-# * * * * *   The Delivery Algorithm   * * * * * #
+    # Add one pkg to each truck until they're all loaded
+    while len(available_pkgs) > 0:
+        for t in trucks:
+            for loc in map.min_dist(t.last_pkg_loc):
+                for p in pkgs:
+                    if p.loc_id == loc:
+                        t.add_pkg(p)
+                        available_pkgs.remove(p)
+                        break
+                break
+            break
+
+
+            break # TODO DEBUG
+        break #TODO DEbug
+
+
+
 # TODO Check if there are (or will be?) packages not loaded on a truck
 # TODO If so, plan on delivering early-ETA packages first, then fill in the time gaps with as many packages as possible
 
@@ -61,6 +92,7 @@ while selection != 0:
           "Please make a selection:\n"
           "\t1. Run full simulation\n"
           "\t2. Show package statuses at a time\n"
+          "\t3. Essential changes (# of trucks, etc)"
           "\t0. Exit")
     try:
         selection = 1  # TODO int(input())
