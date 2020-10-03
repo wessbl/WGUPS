@@ -20,7 +20,7 @@ class Truck:
         self.miles = 0.0
         self.speed = speed  # miles per hour
         self.max_packages = max_packages  # max amount of packages
-        self.location = 0  # current location
+        self.loc = 0  # current location
         self.last_pkg_loc = 0  # the location of its last package
         self.packages = []  # an ordered list of packages (which define the route)
 
@@ -29,11 +29,16 @@ class Truck:
         self.miles += dist
         elapsed = timedelta(hours=dist / self.speed)
         self.time += elapsed
-        print("Truck ", self.id, " drove ", dist, " miles", sep='')
 
     def add_pkg(self, pkg):
         self.packages.append(pkg)
-        self.last_pkg_loc = pkg.loc_id
+        self.last_pkg_loc = pkg.loc
+
+    def unload(self):
+        pkg = self.packages[0]
+        pkg.status = "Delivered at " + str(self.time)
+        self.packages.remove(pkg)
+        #print("Truck ", str(self.id), " delivered Pkg ", str(pkg.id), " at ", str(self.time))
 
     # Truck info in one string
     def __str__(self):
@@ -42,27 +47,25 @@ class Truck:
 
 # A class that represents a Package needing to be delivered, with
 #   id (int)
-#   destination (int representing a location in the loc_table)
+#   loc (int representing a Location obj in the Map class)
 #   deadline (time)
 #   mass (int)
 #   truck (int)
 #   pkg_group (list of ints)
 #   arrival_time (time)
-#   delivery time (time)
+#   delivery_time (time)
 class Package:
     def __init__(self, id, address, city, zip, deadline, mass, status):
         self.id = id
-        self.address = address
-        self.city = city
-        self.zip = zip
         self.mass = mass
         self.status = status
         self.truck = None
         self.pkg_group = None
+        self.delivery_time = None
 
-        # Assign a location id (for ease) and, if it's a real address, verify a valid loc_id
-        self.loc_id = Map.lookup(address, zip)
-        if self.id != -1 & self.loc_id == -1:
+        # Assign a location id (for ease) and verify
+        self.loc = Map.lookup(address, zip)
+        if self.id != -1 & self.loc == -1:
             raise Exception("Unrecognized address!")
 
         # Parse deadline, which is in form "10:30 am" or "EOD" (end of day)
@@ -75,9 +78,11 @@ class Package:
             if meridiem == "pm" and hour >= 1:
                 hour += 12
             self.deadline = timedelta(hours=hour, minutes=minute)
+        else:
+            self.deadline = deadline
 
     def __str__(self):
-        return "Pkg#" + str(self.id) + ": " + self.status + ". To " + self.city + " at " + self.deadline
+        return "Pkg#" + str(self.id) + ": " + self.status + ". Loc " + str(self.loc) + " @ " + str(self.deadline)
 
 
 # A package-specific node class to be used by the hash_table class, as a node that points to other nodes.
@@ -86,11 +91,8 @@ class PkgNode:
         self.pkg = pkg
         self.next = None
 
-    def __str__(self):
-        return "Pkg#" + str(self.pkg.id)
 
-
-# A hash table with a given size
+# A hash table with a given array size. Also keeps a dictionary of location->pkgs
 class PkgHashTable:
     def __init__(self, arr_size):
         self.arr_size = arr_size
@@ -98,6 +100,9 @@ class PkgHashTable:
         for i in range(arr_size - 1):
             self.arr.append(PkgNode(Package(-1, "", "", "", "", "", "")))
         self.len = 0
+        self.loc_dictionary = {}
+        for i in range(len(Map.locations)):
+            self.loc_dictionary[i] = []
 
     # Insert a new node onto the hash table
     def insert(self, id, address, city, zip, deadline, mass, status="At Warehouse"):
@@ -111,25 +116,7 @@ class PkgHashTable:
                 node = node.next
             node.next = PkgNode(pkg)
         self.len += 1
-
-    # Insert a new node onto the hash table
-    def remove(self, id):
-        # Check if it exists on the table
-        if self.lookup(id) is None:
-            return
-
-        # Find the node
-        pkg_hash = id % self.arr_size
-        node = self.arr[pkg_hash]
-        prev_node = self.arr[pkg_hash]
-        if node.pkg.id == id:                   # If it's first in the bucket, assign bucket to second node
-            self.arr[pkg_hash] = node.next
-            self.len -= 1
-            return
-        while node.next.pkg.id != id:
-            node = node.next
-        node.next = node.next.next              # Assign node.next to the node after the target
-        self.len -= 1
+        self.loc_dictionary[pkg.loc].append(pkg.id)
 
     # A lookup function that takes a pkg id and returns the Package object with the id; or None if none is found.
     def lookup(self, id):
@@ -173,6 +160,7 @@ class PkgIterator:
         if self.node is None:
             self.index = 0
             self.node = self.pkgs.arr[0]
+            return self.node.pkg
 
         # Return the next node in the chain where available
         if self.node.next is not None:
@@ -191,6 +179,8 @@ class PkgIterator:
             self.node = self.node.next
             return self.node.pkg
         raise StopIteration
+
+    # TODO This would be better in order! Plus it's too complicated. Do an int i loop and return lookup(0)-lookup(i)!!
 
 
 # A method that inserts package data into our hash table.
@@ -261,8 +251,7 @@ class Location:
 # A class containing a hash table of all locations, as well as an adjacency matrix
 class Map:
     locations = {
-        Location(0, "Western Governors University",
-                 "4001 South 700 East, Salt Lake City, UT", "84107"),
+        Location(0, "Western Governors University", "4001 South 700 East", "84107"),
         Location(1, "International Peace Gardens", "1060 Dalton Ave S", "84104"),
         Location(2, "Sugar House Park", "1330 2100 S", "84106"),
         Location(3, "Taylorsville-Bennion Heritage City Gov Off", "1488 4800 S", "84123"),
@@ -278,8 +267,7 @@ class Map:
         Location(13, "Redwood Park", "3060 Lester St", "84119"),
         Location(14, "Salt Lake County Mental Health", "3148 S 1100 W", "84119"),
         Location(15, "Salt Lake County/United Police Dept", "3365 S 900 W", "84119"),
-        Location(16, "West Valley Prosecutor",
-                 "3575 W Valley Central Station bus Loop", "84119"),
+        Location(16, "West Valley Prosecutor", "3575 W Valley Central Station bus Loop", "84119"),
         Location(17, "Housing Auth. of Salt Lake County", "3595 Main St", "84115"),
         Location(18, "Utah DMV Administrative Office", "380 W 2880 S", "84115"),
         Location(19, "Third District Juvenile Court", "410 S State St", "84111"),

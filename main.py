@@ -33,6 +33,8 @@ map = Map()
 # the actual algorithm
 def simulate(status_time):
     print("\n\n\nStatuses at ", status_time)
+    if status_time == "End of Day":
+        status_time = timedelta(days=99)
     # Instantiate all variables
     trucks = []
     for i in range(num_trucks):
@@ -41,16 +43,15 @@ def simulate(status_time):
     load_pkgs(pkgs)
 
     # * * * * *   The Delivery Algorithm   * * * * * #
-    # 1- Choose a route for x trucks
-    # 2- Load the trucks, and provide a route
-    # 3- Initiate simulation, keeping track of the time
-    # 4- Update as needed (new packages arrive at warehouse, package updates, etc)
-    #TODO get_routes(trucks, pkgs)
+    # 1- Choose a route & load x trucks
+    # 2- Initiate simulation, keeping track of the time
+    # 3- Update as needed (new packages arrive at warehouse, package updates, etc)
+    load_trucks(trucks, pkgs)
+    start_day(trucks, status_time)
 
-    # TODO debug
-    x = map.min_dist(0)
-    for l in x:
-        print(l[0])
+    # Status Report
+    for pkg in pkgs:
+        print(pkg)
 
     # Wait for user to continue
     print("Press enter to continue...", end='')
@@ -59,34 +60,71 @@ def simulate(status_time):
 
 
 # The algorithm that assigns packages to trucks and plans the route
-def get_routes(trucks, pkgs):
+def load_trucks(trucks, pkgs):
     # Get all unloaded pkg IDs
     available_pkgs = []
-    for p in pkgs:
-        if p.truck is None:
-            available_pkgs.append(p.id)
+    for p_id in pkgs:
+        if p_id.truck is None:
+            available_pkgs.append(p_id.id)
 
-    # Monitor if trucks are full
-    # trucks_full = []
-    # for t in trucks:
-    #    trucks_full.append(False)
-
-    # As long as trucks have room & pkgs are available, add one pkg to each truck
-    while len(available_pkgs) > 0: # and trucks_full.__contains__(False):
+    # BASIC GREEDY ALGORITHM: As long as trucks have room & pkgs are available, add pkgs for nearby locations
+    # TODO: Does NOT account for truck limits, timeliness, or mileage
+    added_to_truck = False      # Boolean value so we can switch between trucks
+    while len(available_pkgs) > 0:
         for t in trucks:
-            # Mark full trucks to break while loop
-            # if t.max_packages == len(t.packages):
-            #    trucks_full[t.id] = True
-            #    print("Truck ", t.id, " full")
-            #    continue
-            for loc in map.min_dist(t.last_pkg_loc):  # Get the closest locations
-                print("Truck ", t.id, " loc ", loc[0])
-                id = loc[0]
-                if available_pkgs.__contains__(id):  # If a pkg is available for a loc, add it
-                    t.add_pkg(pkgs.lookup(id))
-                    available_pkgs.remove(id)
-                    print("Added pkg# ", id, " to truck# ", t.id, ". ", str(len(available_pkgs)), " remaining", sep='')
-                    break  # Go to next truck
+            for loc_pkgs in map.min_dist(t.last_pkg_loc):           # Dict sorted by closest locatn (loc -> dist)
+                for p_id in pkgs.loc_dictionary[loc_pkgs[0]]:       # Add available pkgs (loc -> {pkgs})
+                    if available_pkgs.__contains__(p_id):
+                        # Load pkg onto truck
+                        pkg = pkgs.lookup(p_id)
+                        t.add_pkg(pkg)
+                        pkg.truck = t.id
+                        available_pkgs.remove(p_id)
+                        added_to_truck = True
+                        # DEBUG print("Added pkg# ", p_id, " to truck# ", t.id, "; loc ", pkg.loc, sep='')
+                if added_to_truck is True:
+                    added_to_truck = False
+                    break
+
+
+# Launches the trucks on their route, keeping track of the time as they go
+def start_day(trucks, status_time):
+    clock = timedelta(days=99)
+    t_clock = 0     # Which truck has the earliest clock
+
+    # Have all trucks drive, then take the min of truck times
+    for truck in trucks:
+        pkg = truck.packages[0]
+        dist = map.distances[truck.loc][pkg.loc]
+        truck.drive(dist)
+        clock = min(clock, truck.time)
+        t_clock = truck.id
+
+    # Have truck with earliest time drive to next delivery
+    while clock != timedelta(days=99) and clock < status_time:
+        # Deliver
+        truck = trucks[t_clock]
+        truck.unload()
+        if len(truck.packages) == 0:
+            # Go back to warehouse
+            dist = map.distances[truck.loc][0]
+            truck.drive(dist)
+            print(truck)
+            truck.time = timedelta(days=99)
+
+        # Drive
+        else:
+            pkg = truck.packages[0]
+            dist = map.distances[truck.loc][pkg.loc]
+            truck.drive(dist)
+
+        # Configure clock
+        clock = timedelta(days=99)
+        for truck in trucks:
+            if truck.time < clock:
+                clock = truck.time
+                t_clock = truck.id
+
 
 
 # TODO Check if there are (or will be?) packages not loaded on a truck
@@ -114,7 +152,7 @@ while selection != 0:
         continue
 
     if selection == 1:
-        simulate(timedelta(hours=0))
+        simulate("End of Day")
     elif selection == 2:
         print("Please input the time by hour and minute.\n"
               "Hour:\t", end='')
