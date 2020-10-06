@@ -152,35 +152,14 @@ class PkgIterator:
     def __init__(self, pkgs):
         self.pkgs = pkgs
         self.index = 0
-        self.node = None
 
     # Figure out which package to return next
     def __next__(self):
-        # Initialize node where needed
-        if self.node is None:
+        self.index += 1
+        if self.index > self.pkgs.len:
             self.index = 0
-            self.node = self.pkgs.arr[0]
-            return self.node.pkg
-
-        # Return the next node in the chain where available
-        if self.node.next is not None:
-            self.node = self.node.next
-            return self.node.pkg
-
-        # Loop through array until you find a valid node to return, or get to the last one
-        while self.index < len(self.pkgs.arr) - 1:
-            self.index += 1
-            self.node = self.pkgs.arr[self.index]
-            if self.node.pkg.id != -1:
-                return self.node.pkg
-
-        # Our node is in the last row, check to see if we're finished iterating
-        if self.node.next is not None:
-            self.node = self.node.next
-            return self.node.pkg
-        raise StopIteration
-
-    # TODO This would be better in order! Plus it's too complicated. Do an int i loop and return lookup(0)-lookup(i)!!
+            raise StopIteration
+        return self.pkgs.lookup(self.index)
 
 
 # A method that inserts package data into our hash table.

@@ -46,10 +46,12 @@ def simulate(status_time):
     # 1- Choose a route & load x trucks
     # 2- Initiate simulation, keeping track of the time
     # 3- Update as needed (new packages arrive at warehouse, package updates, etc)
-    load_trucks(trucks, pkgs)
+    greedy_load_trucks(trucks, pkgs)
+    dynamic_load_trucks(trucks, pkgs)
     start_day(trucks, status_time)
 
     # Status Report
+    print("Status Report for ", pkgs.len, " packages:")
     for pkg in pkgs:
         print(pkg)
 
@@ -60,7 +62,7 @@ def simulate(status_time):
 
 
 # The algorithm that assigns packages to trucks and plans the route
-def load_trucks(trucks, pkgs):
+def greedy_load_trucks(trucks, pkgs):
     # Get all unloaded pkg IDs
     available_pkgs = []
     for p_id in pkgs:
@@ -86,6 +88,10 @@ def load_trucks(trucks, pkgs):
                     added_to_truck = False
                     break
 
+
+# The dynamic algorithm that assigns packages based on location
+def dynamic_load_trucks(trucks, pkgs):
+    pass
 
 # Launches the trucks on their route, keeping track of the time as they go
 def start_day(trucks, status_time):
