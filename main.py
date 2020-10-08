@@ -70,7 +70,7 @@ def greedy_load_trucks(trucks, pkgs):
             available_pkgs.append(p_id.id)
 
     # BASIC GREEDY ALGORITHM: As long as trucks have room & pkgs are available, add pkgs for nearby locations
-    # TODO: Does NOT account for truck limits, timeliness, or mileage
+    # Does NOT account for truck limits, timeliness, or mileage
     added_to_truck = False      # Boolean value so we can switch between trucks
     while len(available_pkgs) > 0:
         for t in trucks:
@@ -92,6 +92,7 @@ def greedy_load_trucks(trucks, pkgs):
 # The dynamic algorithm that assigns packages based on location
 def dynamic_load_trucks(trucks, pkgs):
     pass
+
 
 # Launches the trucks on their route, keeping track of the time as they go
 def start_day(trucks, status_time):
@@ -149,10 +150,10 @@ while selection != 0:
           "Please make a selection:\n"
           "\t1. Run full simulation\n"
           "\t2. Show package statuses at a time\n"
-          "\t3. Essential changes (# of trucks, etc)"
+          "\t3. Display statuses at 12 pm"  #TODO delete
           "\t0. Exit")
     try:
-        selection = 1  # TODO int(input())
+        selection = 3  # TODO int(input())
     except:
         print("\n\n\nBad choice, try again")
         continue
@@ -166,7 +167,7 @@ while selection != 0:
         print("Minute:\t", end='')
         minute = int(input())
         simulate(timedelta(hours=hour, minutes=minute))
-    elif selection == 2:
-        simulate(timedelta(hours=12, minutes=3), timedelta(hours=13, minutes=12))
+    elif selection == 3:
+        simulate(timedelta(hours=12, minutes=0))
     else:
         continue

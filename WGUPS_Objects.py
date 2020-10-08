@@ -33,12 +33,13 @@ class Truck:
     def add_pkg(self, pkg):
         self.packages.append(pkg)
         self.last_pkg_loc = pkg.loc
+        pkg.status = "On truck " + str(self.id)
 
     def unload(self):
         pkg = self.packages[0]
         pkg.status = "Delivered at " + str(self.time)
         self.packages.remove(pkg)
-        #print("Truck ", str(self.id), " delivered Pkg ", str(pkg.id), " at ", str(self.time))
+        # print("Truck ", str(self.id), " delivered Pkg ", str(pkg.id), " at ", str(self.time))
 
     # Truck info in one string
     def __str__(self):
@@ -166,11 +167,10 @@ class PkgIterator:
 def load_pkgs(pkgs):
     pkgs.insert(1, "195 W Oakland Ave", "Salt Lake City", "84115", "10:30 AM", 21)
     pkgs.insert(2, "2530 S 500 E", "Salt Lake City", "84106", "EOD", 44)
-    pkgs.insert(3, "233 Canyon Rd", "Salt Lake City", "84103", "EOD", 2)  # "Can only be on truck 2
+    pkgs.insert(3, "233 Canyon Rd", "Salt Lake City", "84103", "EOD", 2, "Truck 2 Required")
     pkgs.insert(4, "380 W 2880 S", "Salt Lake City", "84115", "EOD", 4)
     pkgs.insert(5, "410 S State St", "Salt Lake City", "84111", "EOD", 5)
-    pkgs.insert(6, "3060 Lester St", "West Valley City", "84119", "10:30 AM",
-                88)  # "Delayed on flight---will not arrive to depot until 9:05 am
+    pkgs.insert(6, "3060 Lester St", "West Valley City", "84119", "10:30 AM", 88, "9:05 am")
     pkgs.insert(7, "1330 2100 S", "Salt Lake City", "84106", "EOD", 8)
     pkgs.insert(8, "300 State St", "Salt Lake City", "84103", "EOD", 9)
     pkgs.insert(9, "300 State St", "Salt Lake City", "84103", "EOD", 2)  # "Wrong address listed
@@ -178,34 +178,31 @@ def load_pkgs(pkgs):
     pkgs.insert(11, "2600 Taylorsville Blvd", "Salt Lake City", "84118", "EOD", 1)
     pkgs.insert(12, "3575 W Valley Central Station bus Loop", "West Valley City", "84119", "EOD", 1)
     pkgs.insert(13, "2010 W 500 S", "Salt Lake City", "84104", "10:30 AM", 2)
-    pkgs.insert(14, "4300 S 1300 E", "Millcreek", "84117", "10:30 AM", 88)  # "Must be delivered with 15, 19
+    pkgs.insert(14, "4300 S 1300 E", "Millcreek", "84117", "10:30 AM", 88, {15, 19})
     pkgs.insert(15, "4580 S 2300 E", "Holladay", "84117", "9:00 AM", 4)
-    pkgs.insert(16, "4580 S 2300 E", "Holladay", "84117", "10:30 AM", 88)  # "Must be delivered with 13, 19
+    pkgs.insert(16, "4580 S 2300 E", "Holladay", "84117", "10:30 AM", 88, {13, 19})
     pkgs.insert(17, "3148 S 1100 W", "Salt Lake City", "84119", "EOD", 2)
-    pkgs.insert(18, "1488 4800 S", "Salt Lake City", "84123", "EOD", 6)  # "Can only be on truck 2
+    pkgs.insert(18, "1488 4800 S", "Salt Lake City", "84123", "EOD", 6, "Truck 2 Required")
     pkgs.insert(19, "177 W Price Ave", "Salt Lake City", "84115", "EOD", 37)
-    pkgs.insert(20, "3595 Main St", "Salt Lake City", "84115", "10:30 AM", 37)  # "Must be delivered with 13, 15
+    pkgs.insert(20, "3595 Main St", "Salt Lake City", "84115", "10:30 AM", 37, {13, 15})
     pkgs.insert(21, "3595 Main St", "Salt Lake City", "84115", "EOD", 3)
     pkgs.insert(22, "6351 South 900 East", "Murray", "84121", "EOD", 2)
     pkgs.insert(23, "5100 South 2700 West", "Salt Lake City", "84118", "EOD", 5)
     pkgs.insert(24, "5025 State St", "Murray", "84107", "EOD", 7)
-    pkgs.insert(25, "5383 South 900 East #104", "Salt Lake City", "84117", "10:30 AM",
-                7)  # Delayed on flight---will not arrive to depot until 9:05 am
+    pkgs.insert(25, "5383 South 900 East #104", "Salt Lake City", "84117", "10:30 AM", 7, "9:05 am")
     pkgs.insert(26, "5383 South 900 East #104", "Salt Lake City", "84117", "EOD", 25)
     pkgs.insert(27, "1060 Dalton Ave S", "Salt Lake City", "84104", "EOD", 5)
-    pkgs.insert(28, "2835 Main St", "Salt Lake City", "84115", "EOD",
-                7)  # Delayed on flight---will not arrive to depot until 9:05 am
+    pkgs.insert(28, "2835 Main St", "Salt Lake City", "84115", "EOD", 7, "9:05 am")
     pkgs.insert(29, "1330 2100 S", "Salt Lake City", "84106", "10:30 AM", 2)
     pkgs.insert(30, "300 State St", "Salt Lake City", "84103", "10:30 AM", 1)
     pkgs.insert(31, "3365 S 900 W", "Salt Lake City", "84119", "10:30 AM", 1)
-    pkgs.insert(32, "3365 S 900 W", "Salt Lake City", "84119", "EOD",
-                1)  # Delayed on flight---will not arrive to depot until 9:05 am
+    pkgs.insert(32, "3365 S 900 W", "Salt Lake City", "84119", "EOD", 1, "9:05 am")
     pkgs.insert(33, "2530 S 500 E", "Salt Lake City", "84106", "EOD", 1)
     pkgs.insert(34, "4580 S 2300 E", "Holladay", "84117", "10:30 AM", 2)
     pkgs.insert(35, "1060 Dalton Ave S", "Salt Lake City", "84104", "EOD", 88)
-    pkgs.insert(36, "2300 Parkway Blvd", "West Valley City", "84119", "EOD", 88)  # Can only be on truck 2
+    pkgs.insert(36, "2300 Parkway Blvd", "West Valley City", "84119", "EOD", 88, "Truck 2 Required")
     pkgs.insert(37, "410 S State St", "Salt Lake City", "84111", "10:30 AM", 2)
-    pkgs.insert(38, "410 S State St", "Salt Lake City", "84111", "EOD", 9)  # Can only be on truck 2
+    pkgs.insert(38, "410 S State St", "Salt Lake City", "84111", "EOD", 9, "Truck 2 Required")
     pkgs.insert(39, "2010 W 500 S", "Salt Lake City", "84104", "EOD", 9)
     pkgs.insert(40, "380 W 2880 S", "Salt Lake City", "84115", "10:30 AM", 45)
 
@@ -225,6 +222,27 @@ class Location:
 
     def to_string(self):
         return self.id + "\t" + self.name + "\t" + self.address
+
+
+# A location group class, which will help us keep track of the order in which location groups are visited. Its path can
+# contain other groups and/or locations
+class LocGroup:
+    def __init__(self):
+        self.locs = []
+        self.delvry_time = None     # earliest
+        self.start = None           # Starting vertex
+        self.end = None             # Ending vertex
+        self.path = []              # verts and groups
+        self.mileage_cost = None    # How many miles are spent in the group
+
+    # Once vertices are finalized for the group, call this method to make the path within this group
+    def make_path(self, from_vertex):
+        return
+
+    # If the time spent within this group wholly exceeds a delivery time, this method will divide this group into others
+    # that will ensure timely groups are visited first
+    def subdivide(self):
+        return
 
 
 # A class containing a hash table of all locations, as well as an adjacency matrix
@@ -303,11 +321,18 @@ class Map:
                 except:
                     self.distances[i].append(self.distances[j][i])
 
-    # Return a dictionary of indexes adjacent to the given location that map to distance away, sorted by distance
-    def min_dist(self, x):
+    # Return a dictionary of indexes adjacent to the given location that map to distance away, sorted by distance.
+    # Option to give only a list of desired locations adjacent to the given.
+    def min_dist(self, x, adj_list=[]):
         adj_dict = {}
-        for i in range(len(self.distances)):
-            adj_dict[i] = self.distances[x][i]
+        # If a list was provided
+        if len(adj_list) > 0:
+            for i in adj_list:
+                adj_dict[i] = self.distances[x][i]
+        # Return all adjacencies
+        else:
+            for i in range(len(self.distances)):
+                adj_dict[i] = self.distances[x][i]
         return sorted(adj_dict.items(), key=lambda x: x[1])
 
     # Looks up address and zip for a match, then returns a location id if a match is found
