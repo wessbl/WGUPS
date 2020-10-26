@@ -61,7 +61,10 @@ class Package:
         self.id = id
         self.mass = mass
         self.status = status
-        self.truck = None
+        if status.__contains__("Truck"):
+            self.truck = int(status[6])
+        else:
+            self.truck = None
         self.delivery_time = None
 
         # Assign a location id (for ease) and verify
@@ -243,14 +246,12 @@ class LocGroup:
         self.part_of_group = None
         self.center = None
         self.delivery_time = None   # earliest
-        self.start = None           # Starting vertex
-        self.end = None             # Ending vertex
-        self.path = []              # verts and groups
         self.mileage_cost = None    # How many miles are spent in the group
         self.dividable = True
+        self.truck = None
 
     # Add a location or group of locations to the group
-    def add(self, loc, delivery_time=None):
+    def add(self, loc, delivery_time=None, truck_requirement=None):
         # Update size & locs
         if type(loc) == LocGroup:
             self.size += loc.size
@@ -267,6 +268,9 @@ class LocGroup:
         if delivery_time is not None:
             if self.delivery_time is None or delivery_time < self.delivery_time:
                 self.delivery_time = delivery_time
+
+        # Define truck requirement for the group
+        self.truck = truck_requirement
 
         # If this is the first added location/group, set center to be equal to the location/group's center
         if self.center is None:
@@ -294,6 +298,7 @@ class LocGroup:
 
     # Once vertices are finalized for the group, call this method to make the path within this group. Updates locs
     def make_path(self, from_vertex, map):
+        # TODO add consideration for timelies first; if necessary, ungroup and have other truck deliver part of the grp
         # For each member of the pair, get the integer id of the location, or the center if it's a group
         first_is_group = False
         second_is_group = False
@@ -332,7 +337,7 @@ class LocGroup:
         # Add second loc(s)
         if second_is_group:
             # For each loc found in second group, emphasizing closeness to the last vertex added by first loc(s)
-            for loc in self.pair[1].make_path(self.locs[len(self.locs) - 1], map):  # TODO test emphasis to last vertex
+            for loc in self.pair[1].make_path(self.locs[len(self.locs) - 1], map):
                 self.locs.append(loc)
         else:
             self.locs.append(second)
@@ -341,7 +346,7 @@ class LocGroup:
 
     # If the time spent within this group wholly exceeds a delivery time, or
     def subdivide(self):
-        if self.dividable == True:
+        if self.dividable:
             print("hello! this method has not been implemented yet. Have a nice day!")
         else:
             raise Exception("Group cannot be subdivided!")
@@ -351,10 +356,12 @@ class LocGroup:
 
     # To String
     def __str__(self):
-        string = "(Group" + str(self.id) + ": "
+        string = "(Grp " + str(self.id) + ": "
         for loc in self.pair:
             string += str(loc) + ", "
-        string += "Center=" + str(self.center)
+        string += "Ctr=" + str(self.center)
+        if self.truck:
+            string+= ", T=" + str(self.truck)
         return string + ")"
 
 

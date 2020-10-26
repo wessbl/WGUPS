@@ -54,8 +54,8 @@ def simulate(status_time):
     # print("Status Report for ", pkgs.len, " packages:")
     # for pkg in pkgs:
     #     print(pkg)
-    # for truck in trucks:
-    #     print("Truck", truck.id, "has driven", round(truck.miles, 1), "miles")
+    for truck in trucks:
+        print("Truck", truck.id, "has driven", round(truck.miles, 1), "miles")
 
     # Wait for user to continue
     print("Press enter to continue...", end='')
@@ -93,7 +93,7 @@ def greedy_load_trucks(trucks, pkgs):
 
 # The dynamic algorithm that assigns packages based on location
 # TODO Manage Timelies, truck limits, Truck #, & package changes
-# TODO Decide to delete this?
+# TODO HIGH SCORES: 21.4, 51.1
 def dynamic_load_trucks(trucks, pkgs):
     # Create variables needed for this method
     ungrouped = []  # A list of Location ids that haven't been grouped yet
@@ -130,7 +130,9 @@ def dynamic_load_trucks(trucks, pkgs):
 
             # Add vertices to a group if one is still ungrouped
             if ungrouped.__contains__(v1) or ungrouped.__contains__(v2):
-                add_vertex(v1, v2, groups, top_groups, ungrouped, group_lookup)
+                success = add_vertex(v1, v2, groups, top_groups, ungrouped, group_lookup, pkgs)
+                if not success:
+                    raise Exception("Looks like we had a dealbreaker in add_vertex!")   # TODO remove
 
             # Added. Now check if we need to escape loops
             if len(ungrouped) == 0:  # Have we grouped 20% of our locations?
@@ -145,8 +147,8 @@ def dynamic_load_trucks(trucks, pkgs):
         centers = []  # Holds the ids of all top_groups centers
         closest_ctr = []  # Holds closest center       closest_ctr[row][pair][vertex, distance]
         distances = []  # Holds the first distance in the closest_ctr
-        for group in top_groups:
-            centers.append(group.center)
+        for g in top_groups:
+            centers.append(g.center)
         for row in range(len(top_groups)):
             closest_ctr.append(map.min_dist(top_groups[row].center, centers))
             distances.append(closest_ctr[row][0][1])
@@ -159,24 +161,56 @@ def dynamic_load_trucks(trucks, pkgs):
         combine_groups(a, b, groups, top_groups)
         # print("Removed groups", a.id, ",", b.id)  # Debug print
 
-    # Reorder the groups to improve mileage
-    for g in top_groups:
-        g.make_path(0, map)
+    # Reorder the groups to improve mileage, also note if one has a truck requirement
+    truck_req = {}  # A dictionary where the group (stored as index of top_groups) points to the truck id, when needed
+    for i in range(len(top_groups)):
+        top_groups[i].make_path(0, map)
+        if top_groups[i].truck:
+            truck_req[i] = top_groups[i].truck
+
+    # Add package groups with truck requirements (delete from top_groups as you go)
+    truck_req_indexes = truck_req.keys()
+    for index in truck_req_indexes:
+        group = top_groups.pop(index)
+        truck = trucks[truck_req[index] - 1] #Trucks are numbered starting with 1
+        for loc in group.locs:
+            for pkg in pkgs.loc_dictionary[loc]:
+                truck.packages.append(pkgs.lookup(pkg))
 
     # Add packages to trucks in order. A 3x nested loop seems expensive, but its actual length is equal len of pkgs
     for i in range(len(trucks)):
+        if i in truck_req_indexes:
+            continue
         for loc in top_groups[i].locs:
             for pkg in pkgs.loc_dictionary[loc]:
                 trucks[i].packages.append(pkgs.lookup(pkg))
 
 
-def add_vertex(v1, v2, groups, top_groups, ungrouped, group_lookup):
+# A method that adds two vertices to a single group, or groups one vertex with another group. Will not combine groups
+def add_vertex(v1, v2, groups, top_groups, ungrouped, group_lookup, pkgs):
+    # TODO check for dealbreakers: adding bad truck requirement
+    # TODO send delivery time & truck requirements
+    deltime = None  # captures lowest delivery time in all packages
+    pkgs_for_verts = pkgs.loc_dictionary[v1].copy()    # all packages for both locations
+    # for pkg in pkgs.loc_dictionary[v2]:
+    #     pkgs_for_verts.append(pkg)
+    # for pkg_id in pkgs_for_verts:
+    #     pkg = pkgs.lookup(pkg_id)
+    #     if pkg.delivery_time:
+    #         if deltime:
+    #             if pkg.delivery_time < deltime:
+    #                 deltime = pkg.delivery_time
+    #         else:
+    #             deltime = pkg.delivery_time
+
+    # Add the two objects in one group
     if ungrouped.__contains__(v1):
         if ungrouped.__contains__(v2):
             # Group v1 and v2 in new group
             group = LocGroup(get_group_num())
-            group.add(v1)
-            group.add(v2)
+            truck = get_truck_req(pkgs.lookup(v1), pkgs.lookup(v2))
+            group.add(v1, deltime, truck)
+            group.add(v2, deltime, truck)
             group_lookup[v1] = group
             group_lookup[v2] = group
             ungrouped.remove(v1)
@@ -188,8 +222,9 @@ def add_vertex(v1, v2, groups, top_groups, ungrouped, group_lookup):
             v2_group = group_lookup[v2]
             v2_group = get_top_group(v2_group, groups)  # Only deal with top groups
             group = LocGroup(get_group_num())
-            group.add(v1)
-            group.add(v2_group)
+            truck = get_truck_req(pkgs.lookup(v1), v2_group)
+            group.add(v1, deltime, truck)
+            group.add(v2_group, deltime, truck)
             v2_group.part_of_group = group.id
             group_lookup[v1] = group
             ungrouped.remove(v1)
@@ -201,8 +236,9 @@ def add_vertex(v1, v2, groups, top_groups, ungrouped, group_lookup):
         v1_group = group_lookup[v1]
         v1_group = get_top_group(v1_group, groups)  # Only deal with top groups
         group = LocGroup(get_group_num())
-        group.add(v2)
-        group.add(v1_group)
+        truck = get_truck_req(v1_group, pkgs.lookup(v2))
+        group.add(v2, deltime, truck)
+        group.add(v1_group, deltime, truck)
         v1_group.part_of_group = group.id
         group_lookup[v2] = group
         ungrouped.remove(v2)
@@ -210,8 +246,9 @@ def add_vertex(v1, v2, groups, top_groups, ungrouped, group_lookup):
         if top_groups.__contains__(v1_group):
             top_groups.remove(v1_group)
         top_groups.append(group)
-    else:
-        print("Used this method to combine 2 groups")
+    # else: Shouldn't get here, but if you do, do nothing. Use combine_groups() below
+
+    return True
 
 
 # Helper method for adding vertexes to groups
@@ -222,15 +259,16 @@ def get_top_group(group, groups):
     return group
 
 
-# TODO delete?
 # Combines 2 groups into a new group
 def combine_groups(group_1, group_2, groups, top_groups):
     # Combine the group for v1 and v2
     if group_1 == group_2:
         return
     group = LocGroup(get_group_num())
+    truck = get_truck_req(group_1, group_2)
     group.add(group_1)
     group.add(group_2)
+    group.truck = truck
     groups.append(group)
     if top_groups.__contains__(group_1):
         top_groups.remove(group_1)
@@ -244,6 +282,22 @@ def get_group_num():
     global group_num
     group_num += 1
     return group_num
+
+
+# A method to get the truck requirements from 2 different entities
+def get_truck_req(v1, v2):
+    if v1.truck or v2.truck:
+        if v1.truck:
+            if v2.truck:
+                if v1.truck != v2.truck:
+                    raise Exception("Cannot combine groups with different trucks:", v1.truck, "and", v2.truck)
+                else:
+                    return v1.truck
+            else:
+                return v1.truck
+        else:
+            return v2.truck
+    return None
 
 
 # Launches the trucks on their route, keeping track of the time as they go
@@ -267,7 +321,6 @@ def start_day(trucks, status_time):
         if len(truck.packages) == 0:
             # Go back to warehouse
             truck.drive(0)
-            print(truck)
             truck.time = timedelta(days=99)
 
         # Drive
