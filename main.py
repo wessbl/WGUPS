@@ -26,6 +26,7 @@ max_packages = 16  # per truck
 hash_tbl_size = 16
 group_num = -1
 map = Map()
+top_groups = []        # A list of only groups that aren't contained by another group
 
 
 # * * * * *   Simulate Function   * * * * * #
@@ -92,7 +93,7 @@ def greedy_load_trucks(trucks, pkgs):
 
 
 # The dynamic algorithm that assigns packages based on location
-# TODO Manage Timelies, truck limits, Truck #, & package changes
+# TODO Manage Timelies, truck limits, & package changes
 # TODO HIGH SCORES: 21.4, 51.1
 def dynamic_load_trucks(trucks, pkgs):
     # Create variables needed for this method
@@ -101,7 +102,6 @@ def dynamic_load_trucks(trucks, pkgs):
         ungrouped.append(loc.id)
     group_lookup = {}       # A dictionary of all group objects, with all ids pointing to their group
     groups = []             # A list of all groups
-    top_groups = []        # A list of only groups that aren't contained by another group
     num_locs = len(map.locations)
 
     # Sort edges by length
@@ -132,58 +132,85 @@ def dynamic_load_trucks(trucks, pkgs):
             if ungrouped.__contains__(v1) or ungrouped.__contains__(v2):
                 success = add_vertex(v1, v2, groups, top_groups, ungrouped, group_lookup, pkgs)
                 if not success:
-                    raise Exception("Looks like we had a dealbreaker in add_vertex!")   # TODO remove
+                    raise Exception("Encountered a deal breaker in add_vertex!")   # TODO remove
 
             # Added. Now check if we need to escape loops
-            if len(ungrouped) == 0:  # Have we grouped 20% of our locations?
+            if len(ungrouped) == 0:
                 break
-        if len(ungrouped) == 0:  # Have we grouped 20% of our locations?
+        if len(ungrouped) == 0:
             break
 
+    # Make a new array of small groups that we can remove when they become to large in next block
+    small_groups = []
+    smallest_size = None
+    for group in top_groups:
+        # Doubtful that this is needed, but will keep things more airtight
+        if group.size > max_packages:
+            raise Exception("Groups can only be as large as a truck can carry!")
+        else:
+            small_groups.append(group)
+            if smallest_size is None:
+                smallest_size = group.size
+            else:
+                smallest_size = min(group.size, smallest_size)
+    # Make sure all groups in small_groups have size + smallest_size <= max_packages
+    for group in small_groups:
+        if group.size + smallest_size > max_packages:
+            small_groups.remove(group)
+
+    # TODO limit groups to size of truck limit
     # Create t routes (where t = number of trucks) by grouping top groups
-    while len(trucks) != len(top_groups):
+    while True:
         # Create arrays that have the same index for corresponding data (we have to do this every loop because the
         # centers change every time groups are merged, but their length is already small and decreases by 1 every time)
         centers = []  # Holds the ids of all top_groups centers
         closest_ctr = []  # Holds closest center       closest_ctr[row][pair][vertex, distance]
         distances = []  # Holds the first distance in the closest_ctr
-        for g in top_groups:
-            centers.append(g.center)
-        for row in range(len(top_groups)):
-            closest_ctr.append(map.min_dist(top_groups[row].center, centers))
-            distances.append(closest_ctr[row][0][1])
-            # print("Gp", top_groups[row].id, "Ctr", centers[row], ":\t", closest_ctr[row])    # Debug print
-        index_1 = distances.index(min(distances))
-        index_2 = centers.index(closest_ctr[index_1][0][0])
-        # Combine closest top groups a,b
-        a = top_groups[index_1]
-        b = top_groups[index_2]
-        combine_groups(a, b, groups, top_groups)
-        # print("Removed groups", a.id, ",", b.id)  # Debug print
 
-    # Reorder the groups to improve mileage, also note if one has a truck requirement
-    truck_req = {}  # A dictionary where the group (stored as index of top_groups) points to the truck id, when needed
+        # Populate centers
+        for g in small_groups:
+            centers.append(g.center)
+
+        # Populate closest_ctr & distances
+        for row in range(len(small_groups)):
+            closest_ctr.append(map.min_dist(small_groups[row].center, centers))
+            distances.append(closest_ctr[row][0][1])
+            # print("Gp", small_groups[row].id, "Ctr", centers[row], ":\t", closest_ctr[row])    # Debug print
+
+        # Find indexes for lowest distance, and the pair to the vertex with the lowest distance
+        min_d = min(distances)
+        # if min_d > map.avg_len:     # Only group if they're fairly close # TODO this?
+        #     break
+        index_1 = distances.index(min_d)
+        index_2 = centers.index(closest_ctr[index_1][0][0])
+
+        # Combine closest top groups a,b
+        a = small_groups.pop(index_1)
+        index_2 -= 1    # decrease to compensate for popping a off small_groups (a always comes first)
+        b = small_groups.pop(index_2)
+        group = combine_groups(a, b, groups)
+        # Add new group to small_groups if it's still small enough to be combined
+        if group.size + smallest_size <= max_packages:
+            small_groups.append(group)
+
+        # Update smallest_size
+        if a.size == smallest_size or b.size == smallest_size:
+            smallest_size = group.size
+            for g in small_groups:
+                smallest_size = min(smallest_size, g.size)
+        # print("Combined groups", a.id, ",", b.id, "at distance of", min(distances))  # Debug print
+
+        # When we've run out of small groups to combine, break loop
+        if len(small_groups) < 2:
+            break
+
+    # Reorder the groups to improve mileage
     for i in range(len(top_groups)):
         top_groups[i].make_path(0, map)
-        if top_groups[i].truck:
-            truck_req[i] = top_groups[i].truck
+        print("Gp", top_groups[i].id, "has truck", top_groups[i].truck)
 
-    # Add package groups with truck requirements (delete from top_groups as you go)
-    truck_req_indexes = truck_req.keys()
-    for index in truck_req_indexes:
-        group = top_groups.pop(index)
-        truck = trucks[truck_req[index] - 1] #Trucks are numbered starting with 1
-        for loc in group.locs:
-            for pkg in pkgs.loc_dictionary[loc]:
-                truck.packages.append(pkgs.lookup(pkg))
-
-    # Add packages to trucks in order. A 3x nested loop seems expensive, but its actual length is equal len of pkgs
-    for i in range(len(trucks)):
-        if i in truck_req_indexes:
-            continue
-        for loc in top_groups[i].locs:
-            for pkg in pkgs.loc_dictionary[loc]:
-                trucks[i].packages.append(pkgs.lookup(pkg))
+    for truck in trucks:
+        load_truck(truck, pkgs)
 
 
 # A method that adds two vertices to a single group, or groups one vertex with another group. Will not combine groups
@@ -260,7 +287,8 @@ def get_top_group(group, groups):
 
 
 # Combines 2 groups into a new group
-def combine_groups(group_1, group_2, groups, top_groups):
+def combine_groups(group_1, group_2, groups):
+    global top_groups
     # Combine the group for v1 and v2
     if group_1 == group_2:
         return
@@ -275,6 +303,7 @@ def combine_groups(group_1, group_2, groups, top_groups):
     if top_groups.__contains__(group_2):
         top_groups.remove(group_2)
     top_groups.append(group)
+    return group
 
 
 # A simple method to increment and return the group_num
@@ -300,6 +329,34 @@ def get_truck_req(v1, v2):
     return None
 
 
+# Loads a truck at location 0 with packages and launches it
+def load_truck(truck, pkgs):
+    # Add package groups with truck requirements first (delete from top_groups as you go)
+    for group in top_groups:
+        if group.truck and group.truck == truck.id:
+            for loc in group.locs:
+                for pkg in pkgs.loc_dictionary[loc]:
+                    truck.packages.append(pkgs.lookup(pkg))
+                    print("T", truck.id, "loaded Pkg", pkg)
+                    if pkgs.lookup(pkg).truck:
+                        print("Truck 2 was required!!")
+            top_groups.remove(group)
+
+    # Add package groups without truck requirements (if able)
+    for group in top_groups:
+        if group.size + len(truck.packages) <= max_packages:
+            for loc in group.locs:
+                for pkg in pkgs.loc_dictionary[loc]:
+                    truck.packages.append(pkgs.lookup(pkg))
+                    print("T", truck.id, "loaded Pkg", pkg)
+                    if pkgs.lookup(pkg).truck:
+                        print("Truck 2 was required!!")
+            top_groups.remove(group)
+    # Launch truck
+    pkg = truck.packages[0]
+    truck.drive(pkg.loc)
+
+
 # Launches the trucks on their route, keeping track of the time as they go
 def start_day(trucks, status_time):
     clock = timedelta(days=99)
@@ -314,14 +371,22 @@ def start_day(trucks, status_time):
 
     # Have truck with earliest time drive to next delivery
     while clock != timedelta(days=99) and clock < status_time:
+
         # Deliver all packages in our truck's location
         truck = trucks[t_clock - 1]
         while truck.packages and truck.loc == truck.packages[0].loc:
             truck.unload()
+
+        # If truck is empty
         if len(truck.packages) == 0:
             # Go back to warehouse
-            truck.drive(0)
-            truck.time = timedelta(days=99)
+            if truck.loc != 0:
+                truck.drive(0)
+            # Once there, reload if you can
+            elif len(top_groups) > 0:
+                load_truck(truck)
+            else:
+                truck.time = timedelta(hours=23, minutes=59, seconds=59)
 
         # Drive
         else:
