@@ -16,7 +16,7 @@
 # which packages are at the hub, and which are en route. The intent is to use this program for this specific location
 # and to use the same program in different cities as WGUPS expands its business.
 
-from WGUPS_Objects import Truck, Map, PkgHashTable, load_pkgs, LocGroup
+from WGUPS_Objects import Truck, Map, PkgHashTable, load_pkgs, LocGroup, Location
 from datetime import timedelta
 
 # Define universal variables that will be needed to run a scenario
@@ -26,6 +26,7 @@ max_packages = 16  # per truck
 hash_tbl_size = 16
 group_num = -1
 map = Map()
+pkgs = PkgHashTable(1)
 top_groups = []        # A list of only groups that aren't contained by another group
 
 
@@ -41,6 +42,7 @@ def simulate(status_time):
     trucks = []
     for i in range(num_trucks):
         trucks.append(Truck(i+1, truck_speed, max_packages))
+    global pkgs
     pkgs = PkgHashTable(16)
     load_pkgs(pkgs)
 
@@ -130,9 +132,7 @@ def dynamic_load_trucks(trucks, pkgs):
 
             # Add vertices to a group if one is still ungrouped
             if ungrouped.__contains__(v1) or ungrouped.__contains__(v2):
-                success = add_vertex(v1, v2, groups, top_groups, ungrouped, group_lookup, pkgs)
-                if not success:
-                    raise Exception("Encountered a deal breaker in add_vertex!")   # TODO remove
+                create_group(v1, v2, groups, ungrouped, group_lookup)
 
             # Added. Now check if we need to escape loops
             if len(ungrouped) == 0:
@@ -145,22 +145,22 @@ def dynamic_load_trucks(trucks, pkgs):
     smallest_size = None
     for group in top_groups:
         # Doubtful that this is needed, but will keep things more airtight
-        if group.size > max_packages:
+        if group.pkg_size > max_packages:
             raise Exception("Groups can only be as large as a truck can carry!")
         else:
             small_groups.append(group)
             if smallest_size is None:
-                smallest_size = group.size
+                smallest_size = group.pkg_size
             else:
-                smallest_size = min(group.size, smallest_size)
+                smallest_size = min(group.pkg_size, smallest_size)
     # Make sure all groups in small_groups have size + smallest_size <= max_packages
     for group in small_groups:
-        if group.size + smallest_size > max_packages:
+        if group.pkg_size + smallest_size > max_packages:
             small_groups.remove(group)
 
     # TODO limit groups to size of truck limit
     # Create t routes (where t = number of trucks) by grouping top groups
-    while True:
+    while len(small_groups) > 1:
         # Create arrays that have the same index for corresponding data (we have to do this every loop because the
         # centers change every time groups are merged, but their length is already small and decreases by 1 every time)
         centers = []  # Holds the ids of all top_groups centers
@@ -184,42 +184,47 @@ def dynamic_load_trucks(trucks, pkgs):
         index_1 = distances.index(min_d)
         index_2 = centers.index(closest_ctr[index_1][0][0])
 
-        # Combine closest top groups a,b
+        # Get closest top groups a,b
         a = small_groups.pop(index_1)
         index_2 -= 1    # decrease to compensate for popping a off small_groups (a always comes first)
         b = small_groups.pop(index_2)
-        group = combine_groups(a, b, groups)
+
+        # If the groups have an unmatched truck requirement, delete one. Otherwise, group them
+        if a.truck != b.truck:
+            if a.truck:
+                small_groups.pop(index_1)
+                continue
+            else:
+                small_groups.pop(index_2)
+                continue
+        else:
+            group = create_group(a, b, groups)
+
         # Add new group to small_groups if it's still small enough to be combined
-        if group.size + smallest_size <= max_packages:
+        if group.pkg_size + smallest_size <= max_packages:
             small_groups.append(group)
 
         # Update smallest_size
-        if a.size == smallest_size or b.size == smallest_size:
-            smallest_size = group.size
+        if a.pkg_size == smallest_size or b.pkg_size == smallest_size:
+            smallest_size = group.pkg_size
             for g in small_groups:
-                smallest_size = min(smallest_size, g.size)
+                smallest_size = min(smallest_size, g.pkg_size)
         # print("Combined groups", a.id, ",", b.id, "at distance of", min(distances))  # Debug print
 
-        # When we've run out of small groups to combine, break loop
-        if len(small_groups) < 2:
-            break
-
-    # Reorder the groups to improve mileage
-    for i in range(len(top_groups)):
-        top_groups[i].make_path(0, map)
-        print("Gp", top_groups[i].id, "has truck", top_groups[i].truck)
-
+    # Load the trucks
     for truck in trucks:
-        load_truck(truck, pkgs)
+        create_route(truck)
 
 
-# A method that adds two vertices to a single group, or groups one vertex with another group. Will not combine groups
-def add_vertex(v1, v2, groups, top_groups, ungrouped, group_lookup, pkgs):
+# A method that adds two locations to a single group, or groups one vertex with another group. Will not combine groups
+def create_group(l1, l2, groups, ungrouped=[], group_lookup=None):
     # TODO check for dealbreakers: adding bad truck requirement
     # TODO send delivery time & truck requirements
+
+    # TODO Check for delivery time
     deltime = None  # captures lowest delivery time in all packages
-    pkgs_for_verts = pkgs.loc_dictionary[v1].copy()    # all packages for both locations
-    # for pkg in pkgs.loc_dictionary[v2]:
+    # pkgs_for_verts = pkgs.loc_dictionary[l1].copy()    # all packages for both locations
+    # for pkg in pkgs.loc_dictionary[l2]:
     #     pkgs_for_verts.append(pkg)
     # for pkg_id in pkgs_for_verts:
     #     pkg = pkgs.lookup(pkg_id)
@@ -231,51 +236,68 @@ def add_vertex(v1, v2, groups, top_groups, ungrouped, group_lookup, pkgs):
     #             deltime = pkg.delivery_time
 
     # Add the two objects in one group
-    if ungrouped.__contains__(v1):
-        if ungrouped.__contains__(v2):
-            # Group v1 and v2 in new group
+    if ungrouped.__contains__(l1):
+
+        # Group v1 and v2 in new group
+        if ungrouped.__contains__(l2):
             group = LocGroup(get_group_num())
-            truck = get_truck_req(pkgs.lookup(v1), pkgs.lookup(v2))
-            group.add(v1, deltime, truck)
-            group.add(v2, deltime, truck)
-            group_lookup[v1] = group
-            group_lookup[v2] = group
-            ungrouped.remove(v1)
-            ungrouped.remove(v2)
+            truck = get_truck_req(l1, l2)
+            group.add(l1, len(pkgs.loc_dictionary[l1]), truck)
+            group.add(l2, len(pkgs.loc_dictionary[l2]), truck)
+            group_lookup[l1] = group
+            group_lookup[l2] = group
+            ungrouped.remove(l1)
+            ungrouped.remove(l2)
             groups.append(group)
             top_groups.append(group)
+
+        # Create new group for v1 containing v2's group
         else:
-            # Create new group for v1 containing v2's group
-            v2_group = group_lookup[v2]
+            v2_group = group_lookup[l2]
             v2_group = get_top_group(v2_group, groups)  # Only deal with top groups
             group = LocGroup(get_group_num())
-            truck = get_truck_req(pkgs.lookup(v1), v2_group)
-            group.add(v1, deltime, truck)
-            group.add(v2_group, deltime, truck)
+            truck = get_truck_req(l1, v2_group)
+            group.add(l1, len(pkgs.loc_dictionary[l1]), truck)
+            group.add(v2_group, v2_group.pkg_size, truck)
             v2_group.part_of_group = group.id
-            group_lookup[v1] = group
-            ungrouped.remove(v1)
+            group_lookup[l1] = group
+            ungrouped.remove(l1)
             groups.append(group)
             top_groups.remove(v2_group)
             top_groups.append(group)
-    elif ungrouped.__contains__(v2):
-        # Create new group for v1 containing v2's group
-        v1_group = group_lookup[v1]
+
+    # Create new group for v1 containing v2's group
+    elif ungrouped.__contains__(l2):
+        v1_group = group_lookup[l1]
         v1_group = get_top_group(v1_group, groups)  # Only deal with top groups
         group = LocGroup(get_group_num())
-        truck = get_truck_req(v1_group, pkgs.lookup(v2))
-        group.add(v2, deltime, truck)
-        group.add(v1_group, deltime, truck)
+        truck = get_truck_req(v1_group, l2)
+        group.add(l2, len(pkgs.loc_dictionary[l2]), truck)
+        group.add(v1_group, v1_group.pkg_size, truck)
         v1_group.part_of_group = group.id
-        group_lookup[v2] = group
-        ungrouped.remove(v2)
+        group_lookup[l2] = group
+        ungrouped.remove(l2)
         groups.append(group)
         if top_groups.__contains__(v1_group):
             top_groups.remove(v1_group)
         top_groups.append(group)
-    # else: Shouldn't get here, but if you do, do nothing. Use combine_groups() below
 
-    return True
+    else:
+        # Combine the group for v1 and v2
+        if l1 == l2:
+            return
+        group = LocGroup(get_group_num())
+        truck = get_truck_req(l1, l2)
+        group.add(l1)
+        group.add(l2)
+        group.truck = truck
+        groups.append(group)
+        if top_groups.__contains__(l1):
+            top_groups.remove(l1)
+        if top_groups.__contains__(l2):
+            top_groups.remove(l2)
+        top_groups.append(group)
+        return group
 
 
 # Helper method for adding vertexes to groups
@@ -286,26 +308,6 @@ def get_top_group(group, groups):
     return group
 
 
-# Combines 2 groups into a new group
-def combine_groups(group_1, group_2, groups):
-    global top_groups
-    # Combine the group for v1 and v2
-    if group_1 == group_2:
-        return
-    group = LocGroup(get_group_num())
-    truck = get_truck_req(group_1, group_2)
-    group.add(group_1)
-    group.add(group_2)
-    group.truck = truck
-    groups.append(group)
-    if top_groups.__contains__(group_1):
-        top_groups.remove(group_1)
-    if top_groups.__contains__(group_2):
-        top_groups.remove(group_2)
-    top_groups.append(group)
-    return group
-
-
 # A simple method to increment and return the group_num
 def get_group_num():
     global group_num
@@ -313,48 +315,76 @@ def get_group_num():
     return group_num
 
 
-# A method to get the truck requirements from 2 different entities
-def get_truck_req(v1, v2):
-    if v1.truck or v2.truck:
-        if v1.truck:
-            if v2.truck:
-                if v1.truck != v2.truck:
-                    raise Exception("Cannot combine groups with different trucks:", v1.truck, "and", v2.truck)
+# A method to get the truck requirements from 2 items. Args may be a location id or a location group
+def get_truck_req(arg_1, arg_2):
+    truck_1 = None
+    truck_2 = None
+    if type(arg_1) is int:
+        for pkg in pkgs.loc_dictionary[arg_1]:
+            pkg = pkgs.lookup(pkg)
+            if pkg.truck:
+                truck_1 = pkg.truck
+    else:
+        truck_1 = arg_1.truck
+    if type(arg_2) is int:
+        for pkg in pkgs.loc_dictionary[arg_2]:
+            pkg = pkgs.lookup(pkg)
+            if pkg.truck:
+                truck_2 = pkg.truck
+    else:
+        truck_2 = arg_2.truck
+    if truck_1 or truck_2:
+        if truck_1:
+            if truck_2:
+                if truck_1 != truck_2:
+                    raise Exception("Cannot combine groups with different trucks:", truck_1, "and", truck_2)
                 else:
-                    return v1.truck
+                    return truck_1
             else:
-                return v1.truck
+                return truck_1
         else:
-            return v2.truck
+            return truck_2
     return None
 
 
-# Loads a truck at location 0 with packages and launches it
-def load_truck(truck, pkgs):
+# Creates a route from top_groups for a truck with a given id
+def create_route(truck):
+    route = None
+    num_pkgs = 0
     # Add package groups with truck requirements first (delete from top_groups as you go)
     for group in top_groups:
-        if group.truck and group.truck == truck.id:
-            for loc in group.locs:
-                for pkg in pkgs.loc_dictionary[loc]:
-                    truck.packages.append(pkgs.lookup(pkg))
-                    print("T", truck.id, "loaded Pkg", pkg)
-                    if pkgs.lookup(pkg).truck:
-                        print("Truck 2 was required!!")
+        if group.truck and group.truck == truck.id and group.pkg_size + num_pkgs <= max_packages:
+            if route is None:
+                route = group
+            else:
+                new_route = LocGroup(get_group_num())
+                new_route.add(route, None, route.truck)
+                new_route.add(group, None, group.truck)
+                route = new_route
+            num_pkgs += group.pkg_size
             top_groups.remove(group)
 
     # Add package groups without truck requirements (if able)
     for group in top_groups:
-        if group.size + len(truck.packages) <= max_packages:
-            for loc in group.locs:
-                for pkg in pkgs.loc_dictionary[loc]:
-                    truck.packages.append(pkgs.lookup(pkg))
-                    print("T", truck.id, "loaded Pkg", pkg)
-                    if pkgs.lookup(pkg).truck:
-                        print("Truck 2 was required!!")
+        if not group.truck and group.pkg_size + num_pkgs <= max_packages:
+            if route is None:
+                route = group
+            else:
+                new_route = LocGroup(get_group_num())
+                new_route.add(route, route.pkg_size, route.truck)
+                new_route.add(group, group.pkg_size, group.truck)
+                route = new_route
+            num_pkgs += group.pkg_size
             top_groups.remove(group)
-    # Launch truck
-    pkg = truck.packages[0]
-    truck.drive(pkg.loc)
+
+    for loc in route.locs:
+        for pkg in pkgs.loc_dictionary[loc]:
+            truck.packages.append(pkgs.lookup(pkg))
+
+    print("Truck", truck.id, "loaded up", num_pkgs, "packages.", len(top_groups), "groups left")
+    if route:
+        route.make_path(0, map)
+    return route
 
 
 # Launches the trucks on their route, keeping track of the time as they go
@@ -366,8 +396,9 @@ def start_day(trucks, status_time):
     for truck in trucks:
         pkg = truck.packages[0]
         truck.drive(pkg.loc)
-        clock = min(clock, truck.time)
-        t_clock = truck.id
+        if truck.time < clock:
+            clock = truck.time
+            t_clock = truck.id
 
     # Have truck with earliest time drive to next delivery
     while clock != timedelta(days=99) and clock < status_time:
@@ -379,14 +410,22 @@ def start_day(trucks, status_time):
 
         # If truck is empty
         if len(truck.packages) == 0:
+
             # Go back to warehouse
             if truck.loc != 0:
                 truck.drive(0)
-            # Once there, reload if you can
+
+            # Once there, reload if you can and drive
             elif len(top_groups) > 0:
-                load_truck(truck)
+                success = create_route(truck)
+                pkg = truck.packages[0]
+                truck.drive(pkg.loc)
+                if not success:
+                    truck.time = timedelta(days=99)
+
+            # End of day
             else:
-                truck.time = timedelta(hours=23, minutes=59, seconds=59)
+                truck.time = timedelta(days=99)
 
         # Drive
         else:

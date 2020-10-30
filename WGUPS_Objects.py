@@ -40,8 +40,8 @@ class Truck:
     def unload(self):
         pkg = self.packages.pop(0)
         pkg.status = "Delivered at " + str(self.time)
-        # print("Truck", str(self.id), "delivered Pkg", str(pkg.id), "\tto Loc", pkg.loc,
-        #       "\tat", str(self.time), "\twith", round(self.miles, 1), "miles")
+        print("Truck", str(self.id), "delivered Pkg", str(pkg.id), "\tto Loc", pkg.loc,
+              "\tat", str(self.time), "\twith", round(self.miles, 1), "miles")
 
     # Truck info in one string
     def __str__(self):
@@ -61,10 +61,6 @@ class Package:
         self.id = id
         self.mass = mass
         self.status = status
-        if status.__contains__("Truck"):
-            self.truck = int(status[6])
-        else:
-            self.truck = None
         self.delivery_time = None
 
         # Assign a location id (for ease) and verify
@@ -72,6 +68,12 @@ class Package:
         if self.id != -1 & self.loc == -1:
             raise Exception("Unrecognized address!")
         # print("Package", id, "goes to Location", self.loc)
+
+        # Assign a truck requirement for this package
+        if status.__contains__("Truck"):
+            self.truck = int(status[6])
+        else:
+            self.truck = None
 
         # Parse deadline, which is in form "10:30 am" or "EOD" (end of day)
         dl = deadline.split(":")
@@ -113,10 +115,10 @@ class PkgHashTable:
 
     # Insert a new node onto the hash table
     def insert(self, id, address, city, zip, deadline, mass, status="At Warehouse"):
-        # Check status for package group
-        if type(status) == set:
-            self.groups[id] = status
-            status = "At Warehouse"
+        # TODO Check status for package group
+        # if type(status) == set:
+        #     self.groups[id] = status
+        #     status = "At Warehouse"
         pkg = Package(id, address, city, zip, deadline, mass, status)
         pkg_hash = pkg.id % self.arr_size
         node = self.arr[pkg_hash]  # a node that will help us traverse the hash table
@@ -243,6 +245,7 @@ class LocGroup:
         self.pair = []  # The two location entities that are paired by this group, may be an int or a LocGroup obj
         self.locs = []  # The list of all locations that this group and other groups own
         self.size = 0
+        self.pkg_size = 0   # How many packages are represented by this group
         self.part_of_group = None
         self.center = None
         self.delivery_time = None   # earliest
@@ -251,26 +254,25 @@ class LocGroup:
         self.truck = None
 
     # Add a location or group of locations to the group
-    def add(self, loc, delivery_time=None, truck_requirement=None):
-        # Update size & locs
+    def add(self, loc, pkgs_added=0, truck_requirement=None, delivery_time=None):
+        self.pair.append(loc)
+        self.truck = truck_requirement
+
+        # Update size, pkg_size & locs
         if type(loc) == LocGroup:
             self.size += loc.size
+            self.pkg_size += loc.pkg_size
             for l in loc:
                 self.locs.append(l)
         else:
             self.size += 1
+            self.pkg_size += pkgs_added
             self.locs.append(loc)
 
-        # Update pair
-        self.pair.append(loc)
-
-        # Define a group-wide delivery time
+        # TODO Define a group-wide delivery time
         if delivery_time is not None:
             if self.delivery_time is None or delivery_time < self.delivery_time:
                 self.delivery_time = delivery_time
-
-        # Define truck requirement for the group
-        self.truck = truck_requirement
 
         # If this is the first added location/group, set center to be equal to the location/group's center
         if self.center is None:
@@ -390,7 +392,7 @@ class LocIter:
 
 # A class containing a hash table of all locations, as well as an adjacency matrix
 class Map:
-    locations = {
+    locations = [
         Location(0, "Western Governors University", "4001 South 700 East", "84107"),
         Location(1, "International Peace Gardens", "1060 Dalton Ave S", "84104"),
         Location(2, "Sugar House Park", "1330 2100 S", "84106"),
@@ -418,7 +420,7 @@ class Map:
         Location(24, "City Center of Rock Springs", "5383 South 900 East #104", "84117"),
         Location(25, "Rice Terrace Pavilion Park", "600 E 900 South", "84105"),
         Location(26, "Wheeler Historic Farm", "6351 South 900 East", "84121")
-    }
+    ]
     distances = [
         [0],                                                                                                        # 0
         [7.2, 0],
