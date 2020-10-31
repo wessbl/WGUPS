@@ -42,13 +42,15 @@ def simulate(status_time):
     trucks = []
     for i in range(num_trucks):
         trucks.append(Truck(i+1, truck_speed, max_packages))
+    global top_groups
+    top_groups = []
     global pkgs
     pkgs = PkgHashTable(16)
     load_pkgs(pkgs)
 
     # 1- Choose a route & load x trucks
     # greedy_load_trucks(trucks, pkgs)  # Just a method to test my classes initially
-    dynamic_load_trucks(trucks, pkgs)
+    dynamic_load_trucks(trucks)
 
     # 2- Initiate simulation, keeping track of the time
     start_day(trucks, status_time)
@@ -95,9 +97,9 @@ def greedy_load_trucks(trucks, pkgs):
 
 
 # The dynamic algorithm that assigns packages based on location
-# TODO Manage Timelies, truck limits, & package changes
-# TODO HIGH SCORES: 21.4, 51.1
-def dynamic_load_trucks(trucks, pkgs):
+# TODO Manage Timelies & package changes
+# TODO HIGH SCORES: 60.8, 50.7
+def dynamic_load_trucks(trucks):
     # Create variables needed for this method
     ungrouped = []  # A list of Location ids that haven't been grouped yet
     for loc in map.locations:
@@ -241,9 +243,11 @@ def create_group(l1, l2, groups, ungrouped=[], group_lookup=None):
         # Group v1 and v2 in new group
         if ungrouped.__contains__(l2):
             group = LocGroup(get_group_num())
-            truck = get_truck_req(l1, l2)
-            group.add(l1, len(pkgs.loc_dictionary[l1]), truck)
-            group.add(l2, len(pkgs.loc_dictionary[l2]), truck)
+            loc1 = map.locations[l1]
+            loc2 = map.locations[l2]
+            truck = get_truck_req(loc1, loc2)
+            group.add(l1, len(pkgs.loc_dictionary[l1]), truck, loc1.deltime)
+            group.add(l2, len(pkgs.loc_dictionary[l2]), truck, loc2.deltime)
             group_lookup[l1] = group
             group_lookup[l2] = group
             ungrouped.remove(l1)
@@ -256,9 +260,10 @@ def create_group(l1, l2, groups, ungrouped=[], group_lookup=None):
             v2_group = group_lookup[l2]
             v2_group = get_top_group(v2_group, groups)  # Only deal with top groups
             group = LocGroup(get_group_num())
-            truck = get_truck_req(l1, v2_group)
-            group.add(l1, len(pkgs.loc_dictionary[l1]), truck)
-            group.add(v2_group, v2_group.pkg_size, truck)
+            loc1 = map.locations[l1]
+            truck = get_truck_req(loc1, v2_group)
+            group.add(l1, len(pkgs.loc_dictionary[l1]), truck, loc1.deltime)
+            group.add(v2_group, v2_group.pkg_size, truck, v2_group.deltime)
             v2_group.part_of_group = group.id
             group_lookup[l1] = group
             ungrouped.remove(l1)
@@ -271,9 +276,10 @@ def create_group(l1, l2, groups, ungrouped=[], group_lookup=None):
         v1_group = group_lookup[l1]
         v1_group = get_top_group(v1_group, groups)  # Only deal with top groups
         group = LocGroup(get_group_num())
-        truck = get_truck_req(v1_group, l2)
-        group.add(l2, len(pkgs.loc_dictionary[l2]), truck)
-        group.add(v1_group, v1_group.pkg_size, truck)
+        loc2 = map.locations[l2]
+        truck = get_truck_req(v1_group, loc2)
+        group.add(l2, len(pkgs.loc_dictionary[l2]), truck, loc2.deltime)
+        group.add(v1_group, v1_group.pkg_size, truck, v1_group.deltime)
         v1_group.part_of_group = group.id
         group_lookup[l2] = group
         ungrouped.remove(l2)
@@ -288,8 +294,8 @@ def create_group(l1, l2, groups, ungrouped=[], group_lookup=None):
             return
         group = LocGroup(get_group_num())
         truck = get_truck_req(l1, l2)
-        group.add(l1)
-        group.add(l2)
+        group.add(l1)  # TODO test deltime
+        group.add(l2)  # TODO test deltime
         group.truck = truck
         groups.append(group)
         if top_groups.__contains__(l1):
@@ -315,24 +321,10 @@ def get_group_num():
     return group_num
 
 
-# A method to get the truck requirements from 2 items. Args may be a location id or a location group
+# A method to get the truck requirements from 2 items. Args may be a Location or a LocGroup
 def get_truck_req(arg_1, arg_2):
-    truck_1 = None
-    truck_2 = None
-    if type(arg_1) is int:
-        for pkg in pkgs.loc_dictionary[arg_1]:
-            pkg = pkgs.lookup(pkg)
-            if pkg.truck:
-                truck_1 = pkg.truck
-    else:
-        truck_1 = arg_1.truck
-    if type(arg_2) is int:
-        for pkg in pkgs.loc_dictionary[arg_2]:
-            pkg = pkgs.lookup(pkg)
-            if pkg.truck:
-                truck_2 = pkg.truck
-    else:
-        truck_2 = arg_2.truck
+    truck_1 = arg_1.truck
+    truck_2 = arg_2.truck
     if truck_1 or truck_2:
         if truck_1:
             if truck_2:
@@ -351,28 +343,43 @@ def get_truck_req(arg_1, arg_2):
 def create_route(truck):
     route = None
     num_pkgs = 0
-    # Add package groups with truck requirements first (delete from top_groups as you go)
+
+    # Add package groups with deadlines AND truck requirements first (delete from top_groups as you go)
     for group in top_groups:
-        if group.truck and group.truck == truck.id and group.pkg_size + num_pkgs <= max_packages:
+        if group.deltime and group.truck and group.truck == truck.id and group.pkg_size + num_pkgs <= max_packages:
             if route is None:
                 route = group
             else:
                 new_route = LocGroup(get_group_num())
-                new_route.add(route, None, route.truck)
-                new_route.add(group, None, group.truck)
+                new_route.add(route, None, route.truck, route.deltime)  # TODO use create_group instead??
+                new_route.add(group, None, group.truck, group.deltime)
                 route = new_route
             num_pkgs += group.pkg_size
             top_groups.remove(group)
 
-    # Add package groups without truck requirements (if able)
+    # Add package groups with deadlines XOR truck requirements first (delete from top_groups as you go)
     for group in top_groups:
-        if not group.truck and group.pkg_size + num_pkgs <= max_packages:
+        if (group.deltime and not group.truck and group.pkg_size + num_pkgs <= max_packages) \
+                or (group.truck and group.truck == truck.id and group.pkg_size + num_pkgs <= max_packages):
             if route is None:
                 route = group
             else:
                 new_route = LocGroup(get_group_num())
-                new_route.add(route, route.pkg_size, route.truck)
-                new_route.add(group, group.pkg_size, group.truck)
+                new_route.add(route, None, route.truck, route.deltime)
+                new_route.add(group, None, group.truck, group.deltime)
+                route = new_route
+            num_pkgs += group.pkg_size
+            top_groups.remove(group)
+
+    # Add package groups with neither truck nor deltime
+    for group in top_groups:
+        if not group.truck and not group.deltime and group.pkg_size + num_pkgs <= max_packages:
+            if route is None:
+                route = group
+            else:
+                new_route = LocGroup(get_group_num())
+                new_route.add(route, route.pkg_size, route.truck, route.deltime)
+                new_route.add(group, group.pkg_size, group.truck, group.deltime)
                 route = new_route
             num_pkgs += group.pkg_size
             top_groups.remove(group)
@@ -381,7 +388,7 @@ def create_route(truck):
         for pkg in pkgs.loc_dictionary[loc]:
             truck.packages.append(pkgs.lookup(pkg))
 
-    print("Truck", truck.id, "loaded up", num_pkgs, "packages.", len(top_groups), "groups left")
+    # print("Truck", truck.id, "loaded up", num_pkgs, "packages.", len(top_groups), "groups left")
     if route:
         route.make_path(0, map)
     return route

@@ -40,8 +40,13 @@ class Truck:
     def unload(self):
         pkg = self.packages.pop(0)
         pkg.status = "Delivered at " + str(self.time)
-        print("Truck", str(self.id), "delivered Pkg", str(pkg.id), "\tto Loc", pkg.loc,
-              "\tat", str(self.time), "\twith", round(self.miles, 1), "miles")
+        # print("Truck", str(self.id), "delivered Pkg", str(pkg.id), "\tto Loc", pkg.loc,
+        #       "\tat", str(self.time), "\twith", round(self.miles, 1), "miles")
+        if pkg.deltime and pkg.deltime < self.time:     # TODO turn into Exception
+            print("Truck", self.id, "delivered pkg", pkg.id, "at", self.time, "but it was due at", pkg.deltime, "!")
+
+        if pkg.truck and pkg.truck != self.id:
+            raise Exception("Wrong truck delivered package", pkg.id, ", requires truck", pkg.truck)
 
     # Truck info in one string
     def __str__(self):
@@ -61,7 +66,6 @@ class Package:
         self.id = id
         self.mass = mass
         self.status = status
-        self.delivery_time = None
 
         # Assign a location id (for ease) and verify
         self.loc = Map.lookup(address, zip)
@@ -72,24 +76,39 @@ class Package:
         # Assign a truck requirement for this package
         if status.__contains__("Truck"):
             self.truck = int(status[6])
+            Map.locations[self.loc].truck = self.truck
         else:
             self.truck = None
 
+        # Find get available time from status (will be None if not a time)
+        self.deltime = get_time(status)
+        Map.locations[self.loc].add_deltime(self.deltime)
+
+        # Find out if the package is part of a delivery group
+
         # Parse deadline, which is in form "10:30 am" or "EOD" (end of day)
-        dl = deadline.split(":")
-        if len(dl) > 1:  # if we have a time deadline
-            hour = int(dl[0])
-            temp = dl[1].split()
-            minute = int(temp[0])
-            meridiem = temp[1]
-            if meridiem == "pm" and hour >= 1:
-                hour += 12
-            self.deadline = timedelta(hours=hour, minutes=minute)
-        else:
-            self.deadline = deadline
+        self.deltime = get_time(deadline)
+        Map.locations[self.loc].add_deltime(self.deltime)
+        # print("Pkg", self.id, "has deadline at", self.deltime)
 
     def __str__(self):
-        return "Pkg#" + str(self.id) + ": " + self.status + ". Loc " + str(self.loc) + " @ " + str(self.deadline)
+        return "Pkg#" + str(self.id) + ": " + self.status + ". Loc " + str(self.loc) + " @ " + str(self.deltime)
+
+
+# Given a string time, return a timedelta. Returns None if string was not valid
+def get_time(str_time):
+    if type(str_time) == set:
+        return None
+    str_arr = str_time.split(":")
+    if len(str_arr) == 1:
+        return None
+    hour = int(str_arr[0])
+    temp = str_arr[1].split()
+    minute = int(temp[0])
+    meridiem = temp[1]
+    if meridiem == "pm" and hour >= 1:
+        hour += 12
+    return timedelta(hours=hour, minutes=minute)
 
 
 # A package-specific node class to be used by the hash_table class, as a node that points to other nodes.
@@ -233,28 +252,38 @@ class Location:
         self.name = name
         self.address = address
         self.zip = zip
+        self.deltime = None
+        self.truck = None
+        self.all_pkgs_available = True  # Assume all pkgs are available
 
     def to_string(self):
         return self.id + "\t" + self.name + "\t" + self.address
+
+    def add_deltime(self, deltime):
+        if self.deltime:
+            if deltime and deltime < self.deltime:
+                self.deltime = deltime
+        else:
+            self.deltime = deltime
 
 
 # A location group class, which will help us keep track of the order in which location groups are visited.
 class LocGroup:
     def __init__(self, id):
         self.id = id
-        self.pair = []  # The two location entities that are paired by this group, may be an int or a LocGroup obj
-        self.locs = []  # The list of all locations that this group and other groups own
+        self.pair = []      # The two location entities that are paired by this group, may be an int or a LocGroup obj
+        self.locs = []      # The list of all locations that this group and other groups own
         self.size = 0
-        self.pkg_size = 0   # How many packages are represented by this group
+        self.pkg_size = 0           # How many packages are represented by this group
         self.part_of_group = None
         self.center = None
-        self.delivery_time = None   # earliest
+        self.deltime = None         # earliest delivery time
         self.mileage_cost = None    # How many miles are spent in the group
         self.dividable = True
         self.truck = None
 
     # Add a location or group of locations to the group
-    def add(self, loc, pkgs_added=0, truck_requirement=None, delivery_time=None):
+    def add(self, loc, pkgs_added=0, truck_requirement=None, deltime=None):
         self.pair.append(loc)
         self.truck = truck_requirement
 
@@ -270,9 +299,12 @@ class LocGroup:
             self.locs.append(loc)
 
         # TODO Define a group-wide delivery time
-        if delivery_time is not None:
-            if self.delivery_time is None or delivery_time < self.delivery_time:
-                self.delivery_time = delivery_time
+        if type(loc) == LocGroup:
+            if self.deltime is None or loc.deltime and loc.deltime < self.deltime:
+                self.deltime = loc.deltime
+        elif deltime is not None:
+            if self.deltime is None or deltime < self.deltime:
+                self.deltime = deltime
 
         # If this is the first added location/group, set center to be equal to the location/group's center
         if self.center is None:
@@ -301,28 +333,61 @@ class LocGroup:
     # Once vertices are finalized for the group, call this method to make the path within this group. Updates locs
     def make_path(self, from_vertex, map):
         # TODO add consideration for timelies first; if necessary, ungroup and have other truck deliver part of the grp
-        # For each member of the pair, get the integer id of the location, or the center if it's a group
+        # For each member of the pair, get the integer id of the location, or the center if it's a group, and deltimes
+        first = self.pair[0]
+        second = self.pair[1]
         first_is_group = False
         second_is_group = False
         self.locs = []
 
-        if type(self.pair[0]) == LocGroup:
-            first = self.pair[0].center
+        # Check for groups in the pair
+        if type(first) == LocGroup:
             first_is_group = True
+            first_dt = first.deltime
+            first = first.center
         else:
-            first = self.pair[0]
-        if type(self.pair[1]) == LocGroup:
-            second = self.pair[1].center
+            first_dt = Map.locations[first].deltime
+        if type(second) == LocGroup:
             second_is_group = True
+            second_dt = second.deltime
+            second = second.center
         else:
-            second = self.pair[1]
+            second_dt = Map.locations[second].deltime
 
-        # Compare the distance from the given vertex to each member of the pair, and swap if the second is closer
+        # Check if we need to swap the order of the pair, for timeliness or closeness. The pair is treated like [a, b]
+        # Compare the distance from the given vertex to each member of the pair, set a_closer = (a is closer than b?)
+        swapped = False
         distances = map.min_dist(from_vertex, [first, second])
         if distances[0][0] == second:
-            temp = self.pair[0]
-            self.pair[0] = self.pair[1]
-            self.pair[1] = temp
+            a_closer = False
+        else:
+            a_closer = True
+
+        # Swap if a is neither timely nor close
+        if not first_dt and not a_closer:
+            self.swap_pair()
+            swapped = True
+
+        # Check if we have only one timely vertex that is further away
+        elif not first_dt and second_dt and a_closer:
+            self.swap_pair()    # TODO if we can visit a first? done : swap
+            swapped = True
+        # elif a_dt and not b_dt and not a_closer:
+            # TODO if we can visit b first? swap : done
+
+        # Check if both are timely
+        if first_dt and second_dt:
+            if not a_closer and first_dt >= second_dt:
+                self.swap_pair()
+                swapped = True
+            # elif not a_closer:
+                # TODO visit b first? swap
+            elif second_dt < first_dt:
+                # TODO visit a first? done: swap
+                self.swap_pair()
+                swapped = True
+
+        if swapped:
             temp = first
             first = second
             second = temp
@@ -346,6 +411,12 @@ class LocGroup:
 
         return self.locs
 
+    # Swaps the order of the pair in the group
+    def swap_pair(self):
+        temp = self.pair[0]
+        self.pair[0] = self.pair[1]
+        self.pair[1] = temp
+
     # If the time spent within this group wholly exceeds a delivery time, or
     def subdivide(self):
         if self.dividable:
@@ -359,11 +430,17 @@ class LocGroup:
     # To String
     def __str__(self):
         string = "(Grp " + str(self.id) + ": "
-        for loc in self.pair:
-            string += str(loc) + ", "
-        string += "Ctr=" + str(self.center)
-        if self.truck:
-            string+= ", T=" + str(self.truck)
+        string += str(self.pair[0]) + ", " + str(self.pair[1])
+        # string += "Ctr=" + str(self.center)
+        # if self.truck:
+        #     string += ", T=" + str(self.truck)
+        if self.deltime:
+            string += ", DT=" + str(self.deltime.seconds//3600) + ":"
+            minutes = (self.deltime.seconds//60) % 60
+            if minutes == 0:
+                string += "00"
+            else:
+                string += str(minutes)
         return string + ")"
 
 
