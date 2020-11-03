@@ -40,11 +40,10 @@ class Truck:
     def unload(self):
         pkg = self.packages.pop(0)
         pkg.status = "Delivered at " + str(self.time)
-        # print("Truck", str(self.id), "delivered Pkg", str(pkg.id), "\tto Loc", pkg.loc,
-        #       "\tat", str(self.time), "\twith", round(self.miles, 1), "miles")
-        if pkg.deltime and pkg.deltime < self.time:     # TODO turn into Exception
-            print("Truck", self.id, "delivered pkg", pkg.id, "at", self.time, "but it was due at", pkg.deltime, "!")
-
+        print("Truck", str(self.id), "delivered Pkg", str(pkg.id), "\tto Loc", pkg.loc,
+              "\tat", str(self.time), "\twith", round(self.miles, 1), "miles")
+        if pkg.deltime and pkg.deltime < self.time:
+            raise Exception("Truck", self.id, "delivered pkg", pkg.id, "at", self.time, ", it was due at", pkg.deltime)
         if pkg.truck and pkg.truck != self.id:
             raise Exception("Wrong truck delivered package", pkg.id, ", requires truck", pkg.truck)
 
@@ -437,8 +436,8 @@ class LocGroup:
         if self.deltime:
             string += ", DT=" + str(self.deltime.seconds//3600) + ":"
             minutes = (self.deltime.seconds//60) % 60
-            if minutes == 0:
-                string += "00"
+            if minutes < 10:
+                string += "0" + str(minutes)
             else:
                 string += str(minutes)
         return string + ")"
