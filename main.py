@@ -53,6 +53,24 @@ def simulate(status_time):
     pkgs = PkgHashTable(16)
     load_pkgs(pkgs)
 
+    # Get all of the cluster to hold the same data
+    cluster = None
+    ready_at = None
+    for pkg in pkgs:
+        cluster = manage_clusters(pkg)
+        if pkg.ready_at:
+            if not ready_at:
+                ready_at = pkg.ready_at
+            else:
+                ready_at = max(ready_at, pkg.ready_at)
+    if cluster:
+        for pkg in cluster:
+            pkg = pkgs.lookup(pkg)
+            pkg.cluster = cluster
+            if ready_at:
+                pkg.ready_at = ready_at
+                map.locations[pkg.loc].ready_at = ready_at
+
     # 1- Group locations and load trucks with their packages
     dynamic_group_locs(start_time)
     for truck in trucks:
@@ -72,6 +90,38 @@ def simulate(status_time):
     print("Press enter to continue...", end='')
     input()
     print("\n\n")
+
+
+# A recursive algorithm that manages package clusters
+def manage_clusters(given, cluster=None, visited=None):
+    # If this package's cluster is None
+    if not given.cluster:
+        # If this package's cluster is empty, set it to the given cluster with its ID
+        if not cluster:
+            return
+        elif not cluster.__contains__(given.id):
+            cluster.append(given.id)
+            given.cluster = cluster
+            return cluster
+
+    if not visited:
+        visited = []
+        cluster = []
+    visited.append(given.id)
+
+    if not cluster.__contains__(given.id):
+        cluster.append(given.id)
+
+    # Recursively visit all in the cluster
+    for pkg in given.cluster:
+        if not visited.__contains__(pkg):
+            pkg = pkgs.lookup(pkg)
+            new_cluster = manage_clusters(pkg, cluster, visited)
+            for p in new_cluster:
+                if not cluster.__contains__(p):
+                    cluster.append(p)
+    given.cluster = cluster
+    return cluster
 
 
 # The algorithm that assigns packages to trucks and plans the route
@@ -103,8 +153,8 @@ def greedy_load_trucks():
 
 
 # The dynamic algorithm that assigns packages based on location
-# TODO Manage Timelies & package changes
-# TODO HIGH SCORES: 60.8, 50.7
+# TODO Manage package groups and package changes
+# TODO HIGH SCORES: 44.8, 59.8
 def dynamic_group_locs(time):
     # Create variables needed for this method
     check_pkg_availability(time)

@@ -70,6 +70,7 @@ class Package:
         self.status = status
         self.truck = None
         self.ready_at = None
+        self.cluster = None
 
         # Assign a location id (for ease) and verify
         self.loc = Map.lookup(address, zip)
@@ -88,6 +89,10 @@ class Package:
                 loc.ready_at = max(loc.ready_at, self.ready_at)
             else:
                 loc.ready_at = self.ready_at
+        elif type(status) is set:
+            self.cluster = []
+            for i in status:
+                self.cluster.append(i)
 
         # Find out if the package is part of a delivery group
 
