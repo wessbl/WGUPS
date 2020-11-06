@@ -14,9 +14,9 @@ from datetime import timedelta
 #   miles (double)
 class Truck:
     # Ctor, start time at 8
-    def __init__(self, id, speed, max_packages):
+    def __init__(self, id, speed, max_packages, start_time):
         self.id = id
-        self.time = timedelta(hours=8)  # start at 8 am
+        self.time = start_time  # start at 8 am
         self.miles = 0.0
         self.speed = speed  # miles per hour
         self.max_packages = max_packages  # max amount of packages
@@ -43,7 +43,10 @@ class Truck:
         print("Truck", str(self.id), "delivered Pkg", str(pkg.id), "\tto Loc", pkg.loc,
               "\tat", str(self.time), "\twith", round(self.miles, 1), "miles")
         if pkg.deltime and pkg.deltime < self.time:
-            raise Exception("Truck", self.id, "delivered pkg", pkg.id, "at", self.time, ", it was due at", pkg.deltime)
+            error = "Truck " + str(self.id) + " delivered pkg " + str(pkg.id) + " at " + str(self.time) + \
+                    ", it was due at " + str(pkg.deltime)
+            print(error)
+            # TODO raise Exception(error)
         if pkg.truck and pkg.truck != self.id:
             raise Exception("Wrong truck delivered package", pkg.id, ", requires truck", pkg.truck)
 
@@ -65,6 +68,8 @@ class Package:
         self.id = id
         self.mass = mass
         self.status = status
+        self.truck = None
+        self.ready_at = None
 
         # Assign a location id (for ease) and verify
         self.loc = Map.lookup(address, zip)
@@ -76,12 +81,13 @@ class Package:
         if status.__contains__("Truck"):
             self.truck = int(status[6])
             Map.locations[self.loc].truck = self.truck
-        else:
-            self.truck = None
-
-        # Find get available time from status (will be None if not a time)
-        self.deltime = get_time(status)
-        Map.locations[self.loc].add_deltime(self.deltime)
+        elif status.__contains__(":"):
+            self.ready_at = get_time(status)
+            loc = Map.locations[self.loc]
+            if loc.ready_at:
+                loc.ready_at = max(loc.ready_at, self.ready_at)
+            else:
+                loc.ready_at = self.ready_at
 
         # Find out if the package is part of a delivery group
 
@@ -254,6 +260,8 @@ class Location:
         self.deltime = None
         self.truck = None
         self.all_pkgs_available = True  # Assume all pkgs are available
+        self.ready_at = None
+        self.routed = False     # Location been added to a route
 
     def to_string(self):
         return self.id + "\t" + self.name + "\t" + self.address
@@ -426,13 +434,28 @@ class LocGroup:
     def __iter__(self):
         return LocIter(self.locs)
 
+    # Returns a high-level overview of the group
+    def overview(self):
+        string = "Grp " + str(self.id) + ":"
+        string += "\tPkgs=" + str(self.pkg_size)
+        if self.deltime:
+            string += "\tDelTime=" + str(self.deltime.seconds//3600) + ":"
+            minutes = (self.deltime.seconds//60) % 60
+            if minutes < 10:
+                string += "0" + str(minutes)
+            else:
+                string += str(minutes)
+        if self.truck:
+            string += "\tTrk=" + str(self.truck)
+        return string
+
     # To String
     def __str__(self):
         string = "(Grp " + str(self.id) + ": "
         string += str(self.pair[0]) + ", " + str(self.pair[1])
-        # string += "Ctr=" + str(self.center)
-        # if self.truck:
-        #     string += ", T=" + str(self.truck)
+        string += ", Ctr=" + str(self.center)
+        if self.truck:
+            string += ", T=" + str(self.truck)
         if self.deltime:
             string += ", DT=" + str(self.deltime.seconds//3600) + ":"
             minutes = (self.deltime.seconds//60) % 60
@@ -440,6 +463,7 @@ class LocGroup:
                 string += "0" + str(minutes)
             else:
                 string += str(minutes)
+        string += ", Pkgs=" + str(self.pkg_size)
         return string + ")"
 
 

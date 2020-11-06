@@ -23,12 +23,17 @@ from datetime import timedelta
 num_trucks = 2
 truck_speed = 18.0
 max_packages = 16  # per truck
+start_time = timedelta(hours=8)
 hash_tbl_size = 16
 group_num = -1
 map = Map()
 pkgs = PkgHashTable(1)
 groups = []            # A list of all groups
 top_groups = []        # A list of only groups that aren't contained by another group
+trucks = []
+available_locs = []     # A list of locations that have only available packages
+unavailable_locs = []   # A list of locations that have an unavailable package
+checkup_time = timedelta(days=99)   # A time to check on our unavailable packages
 
 
 # * * * * *   Simulate Function   * * * * * #
@@ -36,27 +41,25 @@ top_groups = []        # A list of only groups that aren't contained by another 
 # is the "clock" of the simulation, its only logic is to make sure the timeline is correct. Other functions are used for
 # the actual algorithm
 def simulate(status_time):
+    global pkgs
+    global trucks
     print("\n\n\nStatuses at ", status_time)
     if status_time == "End of Day":
         status_time = timedelta(days=99)
     # Instantiate all variables
     trucks = []
     for i in range(num_trucks):
-        trucks.append(Truck(i+1, truck_speed, max_packages))
-    global top_groups
-    global groups
-    global pkgs
-    top_groups = []
-    groups = []
+        trucks.append(Truck(i+1, truck_speed, max_packages, start_time))
     pkgs = PkgHashTable(16)
     load_pkgs(pkgs)
 
-    # 1- Choose a route & load x trucks
-    # greedy_load_trucks(trucks, pkgs)  # Just a method to test my classes initially
-    dynamic_load_trucks(trucks)
+    # 1- Group locations and load trucks with their packages
+    dynamic_group_locs(start_time)
+    for truck in trucks:
+        create_route(truck)
 
     # 2- Initiate simulation, keeping track of the time
-    start_day(trucks, status_time)
+    start_day(status_time)
 
     # Status Report
     # print("Status Report for ", pkgs.len, " packages:")
@@ -72,7 +75,7 @@ def simulate(status_time):
 
 
 # The algorithm that assigns packages to trucks and plans the route
-def greedy_load_trucks(trucks, pkgs):
+def greedy_load_trucks():
     # Get all unloaded pkg IDs
     available_pkgs = []
     for p_id in pkgs:
@@ -102,23 +105,20 @@ def greedy_load_trucks(trucks, pkgs):
 # The dynamic algorithm that assigns packages based on location
 # TODO Manage Timelies & package changes
 # TODO HIGH SCORES: 60.8, 50.7
-def dynamic_load_trucks(trucks):
+def dynamic_group_locs(time):
     # Create variables needed for this method
-    ungrouped = []  # A list of Location ids that haven't been grouped yet
-    for loc in map.locations:
-        ungrouped.append(loc.id)
+    check_pkg_availability(time)
+    ungrouped = available_locs.copy()  # A list of Location ids that haven't been grouped yet
     group_lookup = {}       # A dictionary of all group objects, with all ids pointing to their group
-    num_locs = len(map.locations)
+    num_locs = len(ungrouped)
 
     # Sort edges by length
     edges = {}  # A dictionary that maps edge lengths to all vertex pairs with that length. edges[7.1]:[[2,1], [17,16]]
     # Traverse all distances diagonally, so that row is always greater than col
-    for v1 in range(num_locs):
-        if v1 == 0:    # Don't consider home vertex
-            continue
-        for v2 in range(v1):
-            if v2 == 0:    # Don't consider home vertex
-                continue
+    for v1 in ungrouped:
+        for v2 in ungrouped:
+            if v2 == v1:
+                break
             key = map.distances[v1][v2]
             if edges.__contains__(key):
                 edges[key].append([v1, v2])
@@ -144,26 +144,21 @@ def dynamic_load_trucks(trucks):
         if len(ungrouped) == 0:
             break
 
-    # Make a new array of small groups that we can remove when they become to large in next block
+    # Make a new array of small groups that we can remove when they become too large in next block
     small_groups = []
-    smallest_size = None
+    smallest_size = None    # The group with the smallest size (to help us know when to eliminate a large group)
     for group in top_groups:
-        # Doubtful that this is needed, but will keep things more airtight
-        if group.pkg_size > max_packages:
-            raise Exception("Groups can only be as large as a truck can carry!")
+        small_groups.append(group)
+        if smallest_size is None:
+            smallest_size = group.pkg_size
         else:
-            small_groups.append(group)
-            if smallest_size is None:
-                smallest_size = group.pkg_size
-            else:
-                smallest_size = min(group.pkg_size, smallest_size)
+            smallest_size = min(group.pkg_size, smallest_size)
     # Make sure all groups in small_groups have size + smallest_size <= max_packages
     for group in small_groups:
         if group.pkg_size + smallest_size > max_packages:
             small_groups.remove(group)
 
-    # TODO limit groups to size of truck limit
-    # Create t routes (where t = number of trucks) by grouping top groups
+    # Combine groups when able
     while len(small_groups) > 1:
         # Create arrays that have the same index for corresponding data (we have to do this every loop because the
         # centers change every time groups are merged, but their length is already small and decreases by 1 every time)
@@ -183,8 +178,6 @@ def dynamic_load_trucks(trucks):
 
         # Find indexes for lowest distance, and the pair to the vertex with the lowest distance
         min_d = min(distances)
-        # if min_d > map.avg_len:     # Only group if they're fairly close # TODO this?
-        #     break
         index_1 = distances.index(min_d)
         index_2 = centers.index(closest_ctr[index_1][0][0])
 
@@ -193,31 +186,36 @@ def dynamic_load_trucks(trucks):
         index_2 -= 1    # decrease to compensate for popping a off small_groups (a always comes first)
         b = small_groups.pop(index_2)
 
-        # If the groups have an unmatched truck requirement, delete one. Otherwise, group them
-        if a.truck != b.truck:
-            if a.truck:
-                small_groups.pop(index_1)
+        # If the groups are not combinable (pkg_size limit or truck requirements), add back in the smaller group
+        if a.pkg_size + b.pkg_size > max_packages:
+            if a.pkg_size > b.pkg_size:
+                small_groups.append(b)
                 continue
             else:
-                small_groups.pop(index_2)
+                small_groups.append(a)
+                continue
+
+        # If the groups have an unmatched truck requirement, add one back in. Otherwise, group them
+        if a.truck != b.truck:
+            if a.truck:
+                small_groups.append(b)
+                continue
+            else:
+                small_groups.append(a)
                 continue
         else:
             group = create_group(a, b)
 
-        # Add new group to small_groups if it's still small enough to be combined
-        if group.pkg_size + smallest_size <= max_packages:
-            small_groups.append(group)
+            # Add new group to small_groups if it's still small enough to be combined
+            if group.pkg_size + smallest_size <= max_packages:
+                small_groups.append(group)
 
-        # Update smallest_size
-        if a.pkg_size == smallest_size or b.pkg_size == smallest_size:
-            smallest_size = group.pkg_size
-            for g in small_groups:
-                smallest_size = min(smallest_size, g.pkg_size)
-        # print("Combined groups", a.id, ",", b.id, "at distance of", min(distances))  # Debug print
-
-    # Load the trucks
-    for truck in trucks:
-        create_route(truck)
+            # Update smallest_size
+            if a.pkg_size == smallest_size or b.pkg_size == smallest_size:
+                smallest_size = group.pkg_size
+                for g in small_groups:
+                    smallest_size = min(smallest_size, g.pkg_size)
+            # print("Combined groups", a.id, ",", b.id, "at distance of", min(distances))  # Debug print
 
 
 # A method that adds two locations to a single group, or groups one vertex with another group. Combines groups, do not
@@ -327,31 +325,124 @@ def get_truck_req(arg_1, arg_2):
     return None
 
 
+def check_pkg_availability(time):
+    global checkup_time
+    global available_locs
+    global top_groups
+    global groups
+    global pkgs
+    global group_num
+    # Instantiate all variables
+    top_groups = []
+    groups = []
+    group_num = -1
+
+    # If this is the first checkup
+    if time == start_time:
+        for loc in map.locations:
+            # If the location has package that isn't ready
+            if loc.ready_at and loc.ready_at > time:
+                if checkup_time:
+                    checkup_time = loc.ready_at
+                else:
+                    checkup_time = min(checkup_time, loc.ready_at)
+                unavailable_locs.append(loc.id)
+
+            # If the location is ready to go
+            else:
+                available_locs.append(loc.id)
+        # Remove home location
+        available_locs.pop(0)
+
+    # If this is a midday checkup
+    else:
+        for loc in map.locations:
+            # For unavailable locations
+            if unavailable_locs.__contains__(loc.id):
+                # If it's now ready, move to available locations
+                if loc.ready_at <= time:
+                    available_locs.append(loc.id)
+                    unavailable_locs.remove(loc.id)
+
+                # If the location is still not ready, update checkup time
+                else:
+                    if checkup_time <= time:
+                        checkup_time = loc.ready_at
+                    else:
+                        checkup_time = min(checkup_time, loc.ready_at)
+
+            # For available locations
+            else:
+                if loc.routed and available_locs.__contains__(loc.id):
+                    available_locs.remove(loc.id)
+            if len(unavailable_locs) == 0:
+                if checkup_time <= time:
+                    checkup_time = timedelta(days=99)
+
+
 # Creates a route from top_groups for a truck with a given id
 def create_route(truck):
     route_groups = []
     num_pkgs = 0
 
-    # Add package groups with deadlines AND truck requirements first (delete from top_groups as you go)
+    # TODO Remove debug print
+    # print("Available groups:")
+    # for group in top_groups:
+    #     print(group)
+
+    # Add package groups with correct truck requirements
     for group in top_groups:
-        if group.deltime and group.truck and group.truck == truck.id and group.pkg_size + num_pkgs <= max_packages:
+        if not group.truck or group.truck == truck.id:
             route_groups.append(group)
             num_pkgs += group.pkg_size
 
-    # Add package groups with deadlines XOR truck requirements first (delete from top_groups as you go)
-    for group in top_groups:
-        if (group.deltime and not group.truck and group.pkg_size + num_pkgs <= max_packages) \
-                or (group.truck and group.truck == truck.id and group.pkg_size + num_pkgs <= max_packages):
-            route_groups.append(group)
-            num_pkgs += group.pkg_size
+    # If we have multiple groups, find the best group to keep
+    if len(route_groups) > 1 and num_pkgs > max_packages:
+        g1_time = timedelta(days=99)    # Since groups can have a None deltime, use an artificial "long" deltime
+        g2_time = timedelta(days=99)
+        best = None
+        for g1 in route_groups:
+            # Set g1_time
+            if g1.deltime:
+                g1_time = g1.deltime
 
-    # Add package groups with neither truck nor deltime
-    for group in top_groups:
-        if not group.truck and not group.deltime and group.pkg_size + num_pkgs <= max_packages:
-            route_groups.append(group)
-            num_pkgs += group.pkg_size
+            # Compare deltimes between each group (only compare the same groups once)
+            for g2 in route_groups:
+                if g1 == g2:
+                    break
+                # Set g2_time
+                if g2.deltime:
+                    g2_time = g2.deltime
+                # Have best set to the group with the smallest time
+                if g1_time < g2_time:
+                    if not best:
+                        best = g1
+                    elif g1.deltime < best.deltime:
+                        best = g1
+                elif g1_time > g2_time:
+                    if not best:
+                        best = g2
+                    elif g2.deltime < best.deltime:
+                        best = g2
+            # Consider trucks
+            if g1.truck and g1.deltime:
+                if not best or not best.truck:
+                    best = g1
 
-    route = None
+        # Re-do route_groups with only best & good groups
+        if best:
+            route_groups = [best]
+
+    # TODO remove debug statement
+    if route_groups:
+        print("\nLoaded Truck", truck.id, "with group: ", end='')
+        for g in route_groups:
+            print(g.id, "", end='')
+        print("\n")
+    else:
+        print("Could not find a group for Truck", truck.id)
+
+    route = route_groups[0]
     if route_groups:
         if len(route_groups) == 1:
             route = route_groups[0]
@@ -363,13 +454,15 @@ def create_route(truck):
         for loc in route.locs:
             for pkg in pkgs.loc_dictionary[loc]:
                 truck.packages.append(pkgs.lookup(pkg))
+            map.locations[loc].visited = True
+            available_locs.remove(loc)
         top_groups.remove(route)
 
     return route
 
 
 # Launches the trucks on their route, keeping track of the time as they go
-def start_day(trucks, status_time):
+def start_day(status_time):
     clock = timedelta(days=99)
     t_clock = 0     # Which truck has the earliest clock
 
@@ -396,12 +489,17 @@ def start_day(trucks, status_time):
             if truck.loc != 0:
                 truck.drive(0)
 
-            # Once there, reload if you can and drive
+            # Once there...
             elif len(top_groups) > 0:
-                success = create_route(truck)
-                pkg = truck.packages[0]
-                truck.drive(pkg.loc)
-                if not success:
+                # Try to reload & drive
+                if create_route(truck):
+                    pkg = truck.packages[0]
+                    truck.drive(pkg.loc)
+                # If you can't, wait for available packages
+                elif unavailable_locs:
+                    truck.time = checkup_time
+                # If there are no more packages, finished
+                else:
                     truck.time = timedelta(days=99)
 
             # End of day
@@ -420,7 +518,9 @@ def start_day(trucks, status_time):
                 clock = truck.time
                 t_clock = truck.id
 
-        # TODO Check for package updates (address update, or arrived at hub)
+        # Check for package updates (arrived at hub or # TODO address update)
+        if checkup_time <= clock:
+            dynamic_group_locs(clock)
 
 
 # TODO Check if there are (or will be?) packages not loaded on a truck
@@ -439,10 +539,10 @@ while selection != 0:
           "Please make a selection:\n"
           "\t1. Run full simulation\n"
           "\t2. Show package statuses at a time\n"
-          "\t3. Display statuses at 12 pm"  # TODO delete
+          "\t3. Display statuses at 12 pm\n"  # TODO delete
           "\t0. Exit")
     try:
-        selection = 3  # TODO int(input())
+        selection = 1  # TODO int(input())
     except:
         print("\n\n\nBad choice, try again")
         continue
@@ -456,7 +556,5 @@ while selection != 0:
         print("Minute:\t", end='')
         minute = int(input())
         simulate(timedelta(hours=hour, minutes=minute))
-    elif selection == 3:
-        simulate(timedelta(hours=23, minutes=0))
     else:
         continue
