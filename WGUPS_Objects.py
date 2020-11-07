@@ -46,7 +46,7 @@ class Truck:
             error = "Truck " + str(self.id) + " delivered pkg " + str(pkg.id) + " at " + str(self.time) + \
                     ", it was due at " + str(pkg.deltime)
             print(error)
-            # TODO raise Exception(error)
+            # raise Exception(error)    # TODO raise exception instead
         if pkg.truck and pkg.truck != self.id:
             raise Exception("Wrong truck delivered package", pkg.id, ", requires truck", pkg.truck)
 
@@ -102,7 +102,10 @@ class Package:
         # print("Pkg", self.id, "has deadline at", self.deltime)
 
     def __str__(self):
-        return "Pkg#" + str(self.id) + ": " + self.status + ". Loc " + str(self.loc) + " @ " + str(self.deltime)
+        string = "Pkg#" + str(self.id) + ": " + self.status + ". Loc " + str(self.loc) + " @ " + str(self.deltime)
+        if self.cluster:
+            string += " Clustered"
+        return string
 
 
 # Given a string time, return a timedelta. Returns None if string was not valid
@@ -267,6 +270,7 @@ class Location:
         self.all_pkgs_available = True  # Assume all pkgs are available
         self.ready_at = None
         self.routed = False     # Location been added to a route
+        self.clustered = False
 
     def to_string(self):
         return self.id + "\t" + self.name + "\t" + self.address

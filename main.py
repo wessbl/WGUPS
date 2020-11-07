@@ -34,6 +34,7 @@ trucks = []
 available_locs = []     # A list of locations that have only available packages
 unavailable_locs = []   # A list of locations that have an unavailable package
 checkup_time = timedelta(days=99)   # A time to check on our unavailable packages
+full_cluster = []
 
 
 # * * * * *   Simulate Function   * * * * * #
@@ -43,6 +44,7 @@ checkup_time = timedelta(days=99)   # A time to check on our unavailable package
 def simulate(status_time):
     global pkgs
     global trucks
+    global full_cluster
     print("\n\n\nStatuses at ", status_time)
     if status_time == "End of Day":
         status_time = timedelta(days=99)
@@ -55,21 +57,15 @@ def simulate(status_time):
 
     # Get all of the cluster to hold the same data
     cluster = None
-    ready_at = None
     for pkg in pkgs:
-        cluster = manage_clusters(pkg)
-        if pkg.ready_at:
-            if not ready_at:
-                ready_at = pkg.ready_at
-            else:
-                ready_at = max(ready_at, pkg.ready_at)
+        if manage_clusters(pkg):
+            cluster = manage_clusters(pkg)
     if cluster:
         for pkg in cluster:
             pkg = pkgs.lookup(pkg)
             pkg.cluster = cluster
-            if ready_at:
-                pkg.ready_at = ready_at
-                map.locations[pkg.loc].ready_at = ready_at
+            map.locations[pkg.loc].clustered = True
+        full_cluster = cluster
 
     # 1- Group locations and load trucks with their packages
     dynamic_group_locs(start_time)
@@ -124,43 +120,34 @@ def manage_clusters(given, cluster=None, visited=None):
     return cluster
 
 
-# The algorithm that assigns packages to trucks and plans the route
-def greedy_load_trucks():
-    # Get all unloaded pkg IDs
-    available_pkgs = []
-    for p_id in pkgs:
-        if p_id.truck is None:
-            available_pkgs.append(p_id.id)
-
-    # BASIC GREEDY ALGORITHM: As long as trucks have room & pkgs are available, add pkgs for nearby locations
-    # Does NOT account for truck limits, timeliness, or mileage
-    added_to_truck = False      # Boolean value so we can switch between trucks
-    while len(available_pkgs) > 0:
-        for t in trucks:
-            for loc_pkgs in map.min_dist(t.last_pkg_loc):           # Dict sorted by closest location (loc -> dist)
-                for p_id in pkgs.loc_dictionary[loc_pkgs[0]]:       # Add available pkgs (loc -> {pkgs})
-                    if available_pkgs.__contains__(p_id):
-                        # Load pkg onto truck
-                        pkg = pkgs.lookup(p_id)
-                        t.add_pkg(pkg)
-                        pkg.truck = t.id
-                        available_pkgs.remove(p_id)
-                        added_to_truck = True
-                        # DEBUG print("Added pkg# ", p_id, " to truck# ", t.id, "; loc ", pkg.loc, sep='')
-                if added_to_truck is True:
-                    added_to_truck = False
-                    break
-
-
 # The dynamic algorithm that assigns packages based on location
 # TODO Manage package groups and package changes
 # TODO HIGH SCORES: 44.8, 59.8
-def dynamic_group_locs(time):
+def dynamic_group_locs(time, locs=None):
     # Create variables needed for this method
-    check_pkg_availability(time)
-    ungrouped = available_locs.copy()  # A list of Location ids that haven't been grouped yet
-    group_lookup = {}       # A dictionary of all group objects, with all ids pointing to their group
-    num_locs = len(ungrouped)
+    global full_cluster
+    group_lookup = {}  # A dictionary of all group objects, with all ids pointing to their group
+    if locs:
+        ungrouped = locs  # A list of Location ids that haven't been grouped yet
+    else:
+        check_pkg_availability(time)
+        ungrouped = available_locs.copy()  # A list of Location ids that haven't been grouped yet
+
+    # Make the cluster into a special group
+    if full_cluster:
+        cluster_locs = []
+        # There can't be a package that is both unavailable and clustered, so group immediately
+        # are delivered to it
+        for pkg in full_cluster:
+            pkg = pkgs.lookup(pkg)
+            # Get all the locations for the pkgs in the cluster
+            if not cluster_locs.__contains__(pkg.loc):
+                cluster_locs.append(pkg.loc)
+            # Remove this loc from ungrouped for this frame (it'll be grouped in its own frame)
+            if ungrouped.__contains__(pkg.loc):
+                ungrouped.remove(pkg.loc)
+        full_cluster = None
+        dynamic_group_locs(time, cluster_locs)  # Group only the cluster locs
 
     # Sort edges by length
     edges = {}  # A dictionary that maps edge lengths to all vertex pairs with that length. edges[7.1]:[[2,1], [17,16]]
@@ -268,10 +255,9 @@ def dynamic_group_locs(time):
             # print("Combined groups", a.id, ",", b.id, "at distance of", min(distances))  # Debug print
 
 
-# A method that adds two locations to a single group, or groups one vertex with another group. Combines groups, do not
-# use on a loop!
+# A method that adds two locations to a single group, or groups one vertex with another group. l1 and l2 must be loc IDs
+# unless they are LocGroups to be combined. Combines groups, do not use on a loop!
 def create_group(l1, l2, ungrouped=[], group_lookup=None):
-    # TODO check for dealbreakers: adding bad truck requirement
 
     # Add the two objects in one group
     if ungrouped.__contains__(l1):
@@ -290,6 +276,7 @@ def create_group(l1, l2, ungrouped=[], group_lookup=None):
             ungrouped.remove(l2)
             groups.append(group)
             top_groups.append(group)
+            return group
 
         # Create new group for v1 containing v2's group
         else:
@@ -306,6 +293,7 @@ def create_group(l1, l2, ungrouped=[], group_lookup=None):
             groups.append(group)
             top_groups.remove(v2_group)
             top_groups.append(group)
+            return group
 
     # Create new group for v1 containing v2's group
     elif ungrouped.__contains__(l2):
@@ -323,6 +311,7 @@ def create_group(l1, l2, ungrouped=[], group_lookup=None):
         if top_groups.__contains__(v1_group):
             top_groups.remove(v1_group)
         top_groups.append(group)
+        return group
 
     else:
         # Combine the group for v1 and v2
@@ -436,9 +425,9 @@ def create_route(truck):
     num_pkgs = 0
 
     # TODO Remove debug print
-    # print("Available groups:")
-    # for group in top_groups:
-    #     print(group)
+    print("Available groups:")
+    for group in top_groups:
+        print(group.overview())
 
     # Add package groups with correct truck requirements
     for group in top_groups:
@@ -447,6 +436,7 @@ def create_route(truck):
             num_pkgs += group.pkg_size
 
     # If we have multiple groups, find the best group to keep
+
     if len(route_groups) > 1 and num_pkgs > max_packages:
         g1_time = timedelta(days=99)    # Since groups can have a None deltime, use an artificial "long" deltime
         g2_time = timedelta(days=99)
@@ -467,15 +457,15 @@ def create_route(truck):
                 if g1_time < g2_time:
                     if not best:
                         best = g1
-                    elif g1.deltime < best.deltime:
+                    elif best.deltime and g1.deltime < best.deltime:
                         best = g1
                 elif g1_time > g2_time:
                     if not best:
                         best = g2
                     elif g2.deltime < best.deltime:
                         best = g2
-            # Consider trucks
-            if g1.truck and g1.deltime:
+            # Also give truck requirements priority     # TODO Balance between truck reqs and deltimes if needed
+            if g1.truck:
                 if not best or not best.truck:
                     best = g1
 
@@ -492,7 +482,7 @@ def create_route(truck):
     else:
         print("Could not find a group for Truck", truck.id)
 
-    route = route_groups[0]
+    route = None
     if route_groups:
         if len(route_groups) == 1:
             route = route_groups[0]
@@ -502,10 +492,29 @@ def create_route(truck):
                 route = create_group(route, route_groups.pop())
         route.make_path(0, map)
         for loc in route.locs:
-            for pkg in pkgs.loc_dictionary[loc]:
-                truck.packages.append(pkgs.lookup(pkg))
-            map.locations[loc].visited = True
-            available_locs.remove(loc)
+            # If it's clustered, don't add unavailable packages, and keep the loc available if there are any
+            if map.locations[loc].clustered:
+                all_pkgs_loaded = True
+                for pkg in pkgs.loc_dictionary[loc]:
+                    pkg = pkgs.lookup(pkg)
+                    # Load all available packages, flag if there's one that's unavailable
+                    if not pkg.ready_at or pkg.ready_at <= truck.time:
+                        truck.packages.append(pkg)
+                    else:
+                        all_pkgs_loaded = False
+                if all_pkgs_loaded:
+                    map.locations[loc].routed = True
+                    available_locs.remove(loc)
+
+            # If it's not clustered, add all undelivered packages and make location unavailable  # TODO undelivered!
+            else:
+                for pkg in pkgs.loc_dictionary[loc]:
+                    pkg = pkgs.lookup(pkg)
+                    if pkg.ready_at and pkg.ready_at > truck.time:
+                        raise Exception("Loaded package that was unavailable!")
+                    truck.packages.append(pkg)
+                map.locations[loc].routed = True
+                available_locs.remove(loc)
         top_groups.remove(route)
 
     return route
