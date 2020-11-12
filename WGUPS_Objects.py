@@ -40,8 +40,8 @@ class Truck:
     def unload(self):
         pkg = self.packages.pop(0)
         pkg.status = "Delivered at " + str(self.time)
-        print("Truck", str(self.id), "delivered Pkg", str(pkg.id), "\tto Loc", pkg.loc,
-              "\tat", str(self.time), "\twith", round(self.miles, 1), "miles")
+        # print("Truck", str(self.id), "delivered Pkg", str(pkg.id), "\tto Loc", pkg.loc,
+        #       "\tat", str(self.time), "\twith", round(self.miles, 1), "miles")
         if pkg.deltime and pkg.deltime < self.time:
             error = "Truck " + str(self.id) + " delivered pkg " + str(pkg.id) + " at " + str(self.time) + \
                     ", it was due at " + str(pkg.deltime)
@@ -219,7 +219,7 @@ def load_pkgs(pkgs):
     pkgs.insert(6, "3060 Lester St", "West Valley City", "84119", "10:30 AM", 88, "9:05 am")                # Loc 13
     pkgs.insert(7, "1330 2100 S", "Salt Lake City", "84106", "EOD", 8)                                      # Loc 2
     pkgs.insert(8, "300 State St", "Salt Lake City", "84103", "EOD", 9)                                     # Loc 12
-    pkgs.insert(9, "300 State St", "Salt Lake City", "84103", "EOD", 2)  # "Wrong address listed            # Loc 12
+    pkgs.insert(9, "300 State St", "Salt Lake City", "84103", "EOD", 2)  # Changes to Loc#19 at 10:20       # Loc 12
     pkgs.insert(10, "600 E 900 South", "Salt Lake City", "84105", "EOD", 1)                                 # Loc 25
     pkgs.insert(11, "2600 Taylorsville Blvd", "Salt Lake City", "84118", "EOD", 1)                          # Loc 10
     pkgs.insert(12, "3575 W Valley Central Station bus Loop", "West Valley City", "84119", "EOD", 1)        # Loc 16
@@ -348,7 +348,10 @@ class LocGroup:
 
     # Once vertices are finalized for the group, call this method to make the path within this group. Updates locs
     def make_path(self, from_vertex, map):
-        # TODO add consideration for timelies first; if necessary, ungroup and have other truck deliver part of the grp
+        # There is a small chance that this group only has one location, check for this occurence
+        if len(self.pair) == 1 and type(self.pair[0]) == int:
+            return
+
         # For each member of the pair, get the integer id of the location, or the center if it's a group, and deltimes
         first = self.pair[0]
         second = self.pair[1]

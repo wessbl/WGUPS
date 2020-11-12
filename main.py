@@ -77,7 +77,11 @@ def simulate(status_time):
 
     # Status Report
     # print("Status Report for ", pkgs.len, " packages:")
-    # for pkg in pkgs:
+    for pkg in pkgs:
+        if not pkg.status.__contains__("Delivered"):
+            error = "Package #" + str(pkg.id) + " was undelivered at end of day."
+            print(error)
+            # raise Exception(error)    # TODO
     #     print(pkg)
     for truck in trucks:
         print("Truck", truck.id, "has driven", round(truck.miles, 1), "miles")
@@ -132,6 +136,17 @@ def dynamic_group_locs(time, locs=None):
     else:
         check_pkg_availability(time)
         ungrouped = available_locs.copy()  # A list of Location ids that haven't been grouped yet
+
+    # Check if only one location is available
+    if len(ungrouped) == 1:
+        group = LocGroup(get_group_num())
+        loc = map.locations[ungrouped[0]]
+        group.add(loc.id, len(pkgs.loc_dictionary[loc.id]), loc.truck, loc.deltime)
+        group_lookup[loc.id] = group
+        ungrouped.remove(loc.id)
+        groups.append(group)
+        top_groups.append(group)
+        return
 
     # Make the cluster into a special group
     if full_cluster:
@@ -410,10 +425,24 @@ def check_pkg_availability(time):
                     else:
                         checkup_time = min(checkup_time, loc.ready_at)
 
-            # For available locations
+            # For available locations, remove fully delivered locs and update others
+            elif loc.routed and available_locs.__contains__(loc.id):
+                available_locs.remove(loc.id)
             else:
-                if loc.routed and available_locs.__contains__(loc.id):
-                    available_locs.remove(loc.id)
+                truck = None
+                deltime = None
+                for pkg in pkgs.loc_dictionary[loc.id]:
+                    pkg = pkgs.lookup(pkg)
+                    if pkg.truck and not truck:
+                        truck = pkg.truck
+                    if pkg.deltime:
+                        if deltime:
+                            deltime = min(deltime, pkg.deltime)
+                        else:
+                            deltime = pkg.deltime
+                loc.deltime = deltime
+                loc.truck = truck
+
             if len(unavailable_locs) == 0:
                 if checkup_time <= time:
                     checkup_time = timedelta(days=99)
@@ -425,7 +454,7 @@ def create_route(truck):
     num_pkgs = 0
 
     # TODO Remove debug print
-    print("Available groups:")
+    print("\nAvailable groups:")
     for group in top_groups:
         print(group.overview())
 
@@ -436,7 +465,6 @@ def create_route(truck):
             num_pkgs += group.pkg_size
 
     # If we have multiple groups, find the best group to keep
-
     if len(route_groups) > 1 and num_pkgs > max_packages:
         g1_time = timedelta(days=99)    # Since groups can have a None deltime, use an artificial "long" deltime
         g2_time = timedelta(days=99)
@@ -475,13 +503,14 @@ def create_route(truck):
 
     # TODO remove debug statement
     if route_groups:
-        print("\nLoaded Truck", truck.id, "with group: ", end='')
+        print("Loaded Truck", truck.id, "with group: ", end='')
         for g in route_groups:
             print(g.id, "", end='')
         print("\n")
     else:
         print("Could not find a group for Truck", truck.id)
 
+    # Combine all route groups into one LocGroup
     route = None
     if route_groups:
         if len(route_groups) == 1:
@@ -490,7 +519,11 @@ def create_route(truck):
             route = create_group(route_groups.pop(), route_groups.pop())
             while len(route_groups) > 0:
                 route = create_group(route, route_groups.pop())
+
+        # Make a good path to traverse the route
         route.make_path(0, map)
+
+        # Add all packages from all locations in the route
         for loc in route.locs:
             # If it's clustered, don't add unavailable packages, and keep the loc available if there are any
             if map.locations[loc].clustered:
@@ -512,7 +545,20 @@ def create_route(truck):
                     pkg = pkgs.lookup(pkg)
                     if pkg.ready_at and pkg.ready_at > truck.time:
                         raise Exception("Loaded package that was unavailable!")
-                    truck.packages.append(pkg)
+                    # Check status and update if needed
+                    if pkg.status != "At Warehouse":
+                        stat = pkg.status
+                        if type(stat) == str:
+                            if stat.__contains__("Truck") or stat.__contains__(":"):
+                                truck.packages.append(pkg)
+                            else:
+                                raise Exception("Package #", pkg.id, "has a bad status: ", pkg.status)
+                        elif type(stat) == list:
+                            truck.packages.append(pkg)
+                        else:
+                            raise Exception("Package #", pkg.id, "has a bad status: ", pkg.status)
+                    else:
+                        truck.packages.append(pkg)
                 map.locations[loc].routed = True
                 available_locs.remove(loc)
         top_groups.remove(route)
@@ -538,37 +584,62 @@ def start_day(status_time):
 
         # Deliver all packages in our truck's location
         truck = trucks[t_clock - 1]
-        while truck.packages and truck.loc == truck.packages[0].loc:
-            truck.unload()
+        pkg = None
+        if truck.packages:
+            pkg = truck.packages[0]
+        while truck.packages and truck.loc == pkg.loc:
+            # Check for package #9, which has the wrong address
+            if pkg.id == 9 and pkg.loc == 12:
+                pkg = truck.packages.pop(0)
+                pkgs.loc_dictionary[pkg.loc].remove(pkg.id)
+                pkg.loc = None  # Ensures that pkg will not be delivered until address is updated
+                pkg.ready_at = timedelta(days=99)
+                truck.packages.append(pkg)  # Put package at end of list, truck will drop it off at hub
+            else:
+                truck.unload()
+                pkgs.loc_dictionary[pkg.loc].remove(pkg.id)
+            if truck.packages:
+                pkg = truck.packages[0]
 
-        # If truck is empty
-        if len(truck.packages) == 0:
+        # If truck is empty, or if it needs to return a package
+        if len(truck.packages) == 0 or truck.packages[0].loc is None:
 
             # Go back to warehouse
             if truck.loc != 0:
                 truck.drive(0)
 
-            # Once there...
-            elif len(top_groups) > 0:
-                # Try to reload & drive
-                if create_route(truck):
-                    pkg = truck.packages[0]
-                    truck.drive(pkg.loc)
-                # If you can't, wait for available packages
-                elif unavailable_locs:
-                    truck.time = checkup_time
-                # If there are no more packages, finished
+            # If at the warehouse
+            else:
+                # See if the truck has brought a package back
+                if truck.packages:
+                    for pkg in truck.packages:
+                        print("\nTruck dropped off Package #", pkg.id, "at hub due to bad address")
+                    truck.packages = []
+
+                # Check if more deliveries need to be made
+                if len(top_groups):
+                    # Try to reload & drive
+                    if create_route(truck):
+                        pkg = truck.packages[0]
+                        truck.drive(pkg.loc)
+                    # If you can't, wait for available packages
+                    elif unavailable_locs:
+                        truck.time = checkup_time
+                    # If there are no more packages, finished
+                    else:
+                        truck.time = timedelta(days=99)
+
+                # End of day
                 else:
                     truck.time = timedelta(days=99)
 
-            # End of day
-            else:
-                truck.time = timedelta(days=99)
-
-        # Drive
+        # Drive to next package's location
         else:
             pkg = truck.packages[0]
-            truck.drive(pkg.loc)
+            if pkg.loc:
+                truck.drive(pkg.loc)
+            else:
+                truck.drive(0)
 
         # Configure clock
         clock = timedelta(days=99)
@@ -577,9 +648,40 @@ def start_day(status_time):
                 clock = truck.time
                 t_clock = truck.id
 
+        # Update Pkg #9's address at 10:20 am
+        if timedelta(hours=10, minutes=20) <= clock and (not pkgs.lookup(9).loc or pkgs.lookup(9).loc == 12):
+            loc = map.lookup("410 S State St", "84111")
+            if loc == -1:
+                raise Exception("Bad address given!")
+            pkg = pkgs.lookup(9)
+            pkg.loc = loc
+            pkgs.loc_dictionary[loc].append(pkg.id)
+            pkg.ready_at = None
+            loc = map.locations[loc]
+            loc.routed = False
+            if not available_locs.__contains__(loc.id):
+                available_locs.append(loc.id)
+            if pkg.status.__contains__("On Truck"):
+                t = int(pkg.status[9:9])
+                # Check if the truck with Pkg 9 is currently in transit (not held by 'truck')
+                if trucks[t - 1] != truck:
+                    truck = trucks[truck - 1]
+                dynamic_group_pkgs(truck)
+            print("\nUpdated address for Pkg 9, ready for delivery\n")
+            dynamic_group_locs(clock)
+
         # Check for package updates (arrived at hub or # TODO address update)
         if checkup_time <= clock:
-            dynamic_group_locs(clock)
+            dynamic_group_locs(checkup_time)
+
+
+# A method for re-routing a truck while it's already making deliveries
+def dynamic_group_pkgs(truck):
+    locs = []
+    for pkg in truck.packages:
+        if not locs.__contains__(pkg.loc):
+            locs.append(pkg.loc)
+
 
 
 # TODO Check if there are (or will be?) packages not loaded on a truck
