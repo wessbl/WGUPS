@@ -466,7 +466,12 @@ class LocGroup:
             string += pair_1.overview(False)
         else:
             string += str(pair_1)
-            if Map.locations[pair_1].deltime:
+            loc = Map.locations[pair_1]
+            if loc.clustered:
+                string += "C"
+            if loc.truck:
+                string += "T"
+            if loc.deltime:
                 string += "!"
 
         if type(pair_2) == LocGroup:
@@ -477,8 +482,9 @@ class LocGroup:
             string += str(pair_2)
             if Map.locations[pair_2].deltime:
                 string += "!"
-
         string += ")"
+        if top_group:
+            string += "\tPkgs: " + str(self.pkg_size)
         return string
 
     # To String
@@ -561,7 +567,7 @@ class Map:
         [3.8, 7.1, 0],
         [11.0, 6.4, 9.2, 0],
         [2.2, 6.0, 4.4, 5.6, 0],
-        [3.5, 4.8, 2.8, 6.9, 1.9, 0],
+        [3.5, 4.8, 2.8, 6.9, 1.9, 0],                                                                               # 5
         [10.9, 1.6, 8.6, 8.6, 7.9, 6.3, 0],
         [8.6, 2.8, 6.3, 4.0, 5.1, 4.3, 4.0, 0],
         [7.6, 4.8, 5.3, 11.1, 7.5, 4.5, 4.2, 7.7, 0],
@@ -586,9 +592,9 @@ class Map:
         [2.4, 10.0, 6.1, 6.4, 4.2, 5.9, 11.7, 9.5, 9.5, 4.8, 4.9, 5.2, 9.5, 7.2, 6.3, 5.9, 11.1, 4.0, 5.6, 8.5, 2.8,
          3.4, 1.7, 5.4, 0],
         [5.0, 4.4, 2.8, 10.1, 5.4, 3.5, 5.1, 6.2, 2.8, 3.2, 11.0, 3.7, 2.8, 6.4, 6.5, 5.7, 6.2, 5.1, 4.3, 1.8, 6.0,
-         7.9, 6.8, 10.6, 7.0, 0],
+         7.9, 6.8, 10.6, 7.0, 0],                                                                                   # 25
         [3.6, 13.0, 7.4, 10.1, 5.5, 7.2, 14.2, 10.7, 14.1, 6.0, 6.8, 6.4, 14.1, 10.5, 8.8, 8.4, 13.6, 5.2, 6.9,
-         13.1, 4.1, 4.7, 3.1, 7.8, 1.3, 8.3, 0]                                                                     # 26
+         13.1, 4.1, 4.7, 3.1, 7.8, 1.3, 8.3, 0]
     ]
 
     # Fill out the adjacency matrix for easier use later, also get the avg length and create groups for shortest lengths
