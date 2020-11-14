@@ -125,8 +125,6 @@ def manage_clusters(given, cluster=None, visited=None):
 
 
 # The dynamic algorithm that assigns packages based on location
-# TODO Manage package groups and package changes
-# TODO HIGH SCORES: 44.8, 59.8
 def dynamic_group_locs(time, locs=None):
     # Create variables needed for this method
     global full_cluster
@@ -164,37 +162,8 @@ def dynamic_group_locs(time, locs=None):
         full_cluster = None
         dynamic_group_locs(time, cluster_locs)  # Group only the cluster locs
 
-    # Sort edges by length
-    edges = {}  # A dictionary that maps edge lengths to all vertex pairs with that length. edges[7.1]:[[2,1], [17,16]]
-    # Traverse all distances diagonally, so that row is always greater than col
-    for v1 in ungrouped:
-        for v2 in ungrouped:
-            if v2 == v1:
-                break
-            key = map.distances[v1][v2]
-            if edges.__contains__(key):
-                edges[key].append([v1, v2])
-            else:
-                edges[key] = [[v1, v2]]
-    keys = sorted(edges.keys())
-
-    # Group shortest edges
-    for length in keys:  # We won't actually visit all edges
-        # Extract each vertex with this length
-        vertices = edges[length]
-        for vertex in vertices:
-            v1 = vertex[0]
-            v2 = vertex[1]
-
-            # Add vertices to a group if one is still ungrouped
-            if ungrouped.__contains__(v1) or ungrouped.__contains__(v2):
-                create_group(v1, v2, ungrouped, group_lookup)
-
-            # Added. Now check if we need to escape loops
-            if len(ungrouped) == 0:
-                break
-        if len(ungrouped) == 0:
-            break
+    # Make sure all locations are in a group, starting with shortest edges
+    group_shortest_edges(ungrouped, False, group_lookup)
 
     # Make a new array of small groups that we can remove when they become too large in next block
     small_groups = []
@@ -256,7 +225,7 @@ def dynamic_group_locs(time, locs=None):
                 small_groups.append(a)
                 continue
         else:
-            group = create_group(a, b)
+            group = combine_groups(a, b)
 
             # Add new group to small_groups if it's still small enough to be combined
             if group.pkg_size + smallest_size <= max_packages:
@@ -268,10 +237,62 @@ def dynamic_group_locs(time, locs=None):
                 for g in small_groups:
                     smallest_size = min(smallest_size, g.pkg_size)
             # print("Combined groups", a.id, ",", b.id, "at distance of", min(distances))  # Debug print
+    return
 
 
-# A method that adds two locations to a single group, or groups one vertex with another group. l1 and l2 must be loc IDs
-# unless they are LocGroups to be combined. Combines groups, do not use on a loop!
+# Takes a list of locations and groups by shortest edges
+def group_shortest_edges(ungrouped, fully_group, group_lookup={}):
+    these_groups = []
+    # Sort edges by length
+    edges = {}  # A dictionary that maps edge lengths to all vertex pairs with that length. edges[7.1]:[[2,1], [17,16]]
+    # Traverse all distances diagonally, so that row is always greater than col
+    for v1 in ungrouped:
+        for v2 in ungrouped:
+            if v2 == v1:
+                break
+            key = map.distances[v1][v2]
+            if edges.__contains__(key):
+                edges[key].append([v1, v2])
+            else:
+                edges[key] = [[v1, v2]]
+    keys = sorted(edges.keys())
+
+    # Group shortest edges
+    for length in keys:  # We won't actually visit all edges
+        # Extract each vertex with this length
+        vertices = edges[length]
+        for vertex in vertices:
+            v1 = vertex[0]
+            v2 = vertex[1]
+
+            if fully_group:
+                # Add vertices to a group if one is still ungrouped
+                if ungrouped.__contains__(v1) or ungrouped.__contains__(v2):
+                    group = create_group(v1, v2, ungrouped, group_lookup)
+                    these_groups.append(group)
+                # Combine groups if no location is ungrouped
+                if not ungrouped:
+                    g1 = get_top_group(group_lookup[v1])
+                    g2 = get_top_group(group_lookup[v2])
+                    if g1 is not g2:
+                        these_groups = combine_groups(g1, g2)  # If fully_group, we only need the top group
+            else:
+                # Add vertices to a group if one is still ungrouped
+                if ungrouped.__contains__(v1) or ungrouped.__contains__(v2):
+                    group = create_group(v1, v2, ungrouped, group_lookup)
+                    these_groups.append(group)
+
+            # Added. Now check if we need to escape loops
+            if not fully_group and len(ungrouped) == 0:
+                break
+        if not fully_group and len(ungrouped) == 0:
+            break
+
+    return these_groups
+
+
+# A method that adds two locations to a single group, or groups one vertex with another group. l1 and l2 must be
+# location IDs. Combines groups, do not use on a loop!
 def create_group(l1, l2, ungrouped=[], group_lookup=None):
 
     # Add the two objects in one group
@@ -323,27 +344,37 @@ def create_group(l1, l2, ungrouped=[], group_lookup=None):
         group_lookup[l2] = group
         ungrouped.remove(l2)
         groups.append(group)
-        if top_groups.__contains__(v1_group):
-            top_groups.remove(v1_group)
+        top_groups.remove(v1_group)
         top_groups.append(group)
         return group
 
     else:
         # Combine the group for v1 and v2
-        if l1 == l2:
-            return
-        group = LocGroup(get_group_num())
-        truck = get_truck_req(l1, l2)
-        group.add(l1)  # TODO test deltime
-        group.add(l2)  # TODO test deltime
-        group.truck = truck
-        groups.append(group)
-        if top_groups.__contains__(l1):
-            top_groups.remove(l1)
-        if top_groups.__contains__(l2):
-            top_groups.remove(l2)
-        top_groups.append(group)
-        return group
+        v1_group = group_lookup[l1]
+        v1_group = get_top_group(v1_group)  # Only deal with top groups
+        v2_group = group_lookup[l2]
+        v2_group = get_top_group(v2_group)  # Only deal with top groups
+        return combine_groups(v1_group, v2_group)
+
+
+# A method that combines two different groups into a single group. Differs from create_group because it requires groups
+def combine_groups(g1, g2):
+    if g1 == g2:
+        return g1
+    g1 = get_top_group(g1)
+    g2 = get_top_group(g2)
+    truck = get_truck_req(g1, g2)
+    group = LocGroup(get_group_num())
+    group.add(g1)
+    group.add(g2)
+    group.truck = truck
+    groups.append(group)
+    if top_groups.__contains__(g1):
+        top_groups.remove(g1)
+    if top_groups.__contains__(g2):
+        top_groups.remove(g2)
+    top_groups.append(group)
+    return group
 
 
 # Helper method for adding vertexes to groups
@@ -446,6 +477,7 @@ def check_pkg_availability(time):
             if len(unavailable_locs) == 0:
                 if checkup_time <= time:
                     checkup_time = timedelta(days=99)
+    return
 
 
 # Creates a route from top_groups for a truck with a given id
@@ -506,7 +538,7 @@ def create_route(truck):
         print("Loaded Truck", truck.id, "with group: ", end='')
         for g in route_groups:
             print(g.id, "", end='')
-        print("\n")
+        print()
     else:
         print("Could not find a group for Truck", truck.id)
 
@@ -516,9 +548,24 @@ def create_route(truck):
         if len(route_groups) == 1:
             route = route_groups[0]
         else:
-            route = create_group(route_groups.pop(), route_groups.pop())
+            route = combine_groups(route_groups.pop(), route_groups.pop())
             while len(route_groups) > 0:
-                route = create_group(route, route_groups.pop())
+                route = combine_groups(route, route_groups.pop())
+
+        # Large groups can have timely locations spread throughout the route. Re-do the route if this is the case
+        if len(route.locs) > 8 and route.pair[0].deltime and route.pair[1].deltime:  # TODO test with diff number locs
+            timelies = []
+            regulars = []
+            for loc in route.locs:
+                if map.locations[loc].deltime:
+                    timelies.append(loc)
+                else:
+                    regulars.append(loc)
+
+            # Group all the timelies together, then the regulars in a separate group, then group them together
+            timelies = group_shortest_edges(timelies, True)
+            regulars = group_shortest_edges(regulars, True)
+            route = combine_groups(timelies, regulars)
 
         # Make a good path to traverse the route
         route.make_path(0, map)
@@ -562,6 +609,7 @@ def create_route(truck):
                 map.locations[loc].routed = True
                 available_locs.remove(loc)
         top_groups.remove(route)
+    print("Re-routed as", route.overview(), "\n")
 
     return route
 
@@ -681,11 +729,6 @@ def dynamic_group_pkgs(truck):
     for pkg in truck.packages:
         if not locs.__contains__(pkg.loc):
             locs.append(pkg.loc)
-
-
-
-# TODO Check if there are (or will be?) packages not loaded on a truck
-# TODO If so, plan on delivering early-ETA packages first, then fill in the time gaps with as many packages as possible
 
 
 # * * * * *   Main Menu   * * * * * #

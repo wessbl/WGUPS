@@ -40,8 +40,8 @@ class Truck:
     def unload(self):
         pkg = self.packages.pop(0)
         pkg.status = "Delivered at " + str(self.time)
-        # print("Truck", str(self.id), "delivered Pkg", str(pkg.id), "\tto Loc", pkg.loc,
-        #       "\tat", str(self.time), "\twith", round(self.miles, 1), "miles")
+        print("Truck", str(self.id), "delivered Pkg", str(pkg.id), "\tto Loc", pkg.loc,
+              "\tat", str(self.time), "\twith", round(self.miles, 1), "miles")
         if pkg.deltime and pkg.deltime < self.time:
             error = "Truck " + str(self.id) + " delivered pkg " + str(pkg.id) + " at " + str(self.time) + \
                     ", it was due at " + str(pkg.deltime)
@@ -348,7 +348,7 @@ class LocGroup:
 
     # Once vertices are finalized for the group, call this method to make the path within this group. Updates locs
     def make_path(self, from_vertex, map):
-        # There is a small chance that this group only has one location, check for this occurence
+        # There is a small chance that this group only has one location, check for this occurrence
         if len(self.pair) == 1 and type(self.pair[0]) == int:
             return
 
@@ -389,10 +389,9 @@ class LocGroup:
 
         # Check if we have only one timely vertex that is further away
         elif not first_dt and second_dt and a_closer:
-            self.swap_pair()    # TODO if we can visit a first? done : swap
+            self.swap_pair()
             swapped = True
         # elif a_dt and not b_dt and not a_closer:
-            # TODO if we can visit b first? swap : done
 
         # Check if both are timely
         if first_dt and second_dt:
@@ -400,9 +399,7 @@ class LocGroup:
                 self.swap_pair()
                 swapped = True
             # elif not a_closer:
-                # TODO visit b first? swap
             elif second_dt < first_dt:
-                # TODO visit a first? done: swap
                 self.swap_pair()
                 swapped = True
 
@@ -436,19 +433,13 @@ class LocGroup:
         self.pair[0] = self.pair[1]
         self.pair[1] = temp
 
-    # If the time spent within this group wholly exceeds a delivery time, or
-    def subdivide(self):
-        if self.dividable:
-            print("hello! this method has not been implemented yet. Have a nice day!")
-        else:
-            raise Exception("Group cannot be subdivided!")
-
+    # Defines how groups are to be iterated
     def __iter__(self):
         return LocIter(self.locs)
 
-    # Returns a high-level overview of the group
-    def overview(self):
-        string = "Grp " + str(self.id) + ":"
+    # Returns a string that shows all the constraints this group has
+    def constraints(self):
+        string = "Grp " + str(self.id) + ": "
         string += "\tPkgs=" + str(self.pkg_size)
         if self.deltime:
             string += "\tDelTime=" + str(self.deltime.seconds//3600) + ":"
@@ -461,10 +452,41 @@ class LocGroup:
             string += "\tTrk=" + str(self.truck)
         return string
 
+    # Recursively shows how locs are organized in the group and sub-groups. '!' indicates a timely delivery
+    def overview(self, top_group=True):
+        if top_group:
+            string = "Group " + str(self.id) + ": ("
+        else:
+            string = "("
+        pair_1 = self.pair[0]
+        pair_2 = None
+        if len(self.pair) == 2:
+            pair_2 = self.pair[1]
+        if type(pair_1) == LocGroup:
+            string += pair_1.overview(False)
+        else:
+            string += str(pair_1)
+            if Map.locations[pair_1].deltime:
+                string += "!"
+
+        if type(pair_2) == LocGroup:
+            string += ","
+            string += pair_2.overview(False)
+        elif type(pair_2) == int:
+            string += ","
+            string += str(pair_2)
+            if Map.locations[pair_2].deltime:
+                string += "!"
+
+        string += ")"
+        return string
+
     # To String
     def __str__(self):
         string = "(Grp " + str(self.id) + ": "
-        string += str(self.pair[0]) + ", " + str(self.pair[1])
+        string += str(self.pair[0]) + ", "
+        if len(self.pair) == 2:
+            string += str(self.pair[1])
         string += ", Ctr=" + str(self.center)
         if self.truck:
             string += ", T=" + str(self.truck)
