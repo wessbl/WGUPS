@@ -41,14 +41,17 @@ full_cluster = []
 # Simulates the WGUPS workday, printing package status updates between 2 given times. This function
 # is the "clock" of the simulation, its only logic is to make sure the timeline is correct. Other functions are used for
 # the actual algorithm
-def simulate(status_time):
+def setup(status_time):
     global pkgs
     global trucks
     global full_cluster
-    print("\n\n\nStatuses at ", status_time)
+    global available_locs
+    global unavailable_locs
+    # Instantiate all variables
     if status_time == "End of Day":
         status_time = timedelta(days=99)
-    # Instantiate all variables
+    available_locs = []
+    unavailable_locs = []
     trucks = []
     for i in range(num_trucks):
         trucks.append(Truck(i+1, truck_speed, max_packages, start_time))
@@ -73,18 +76,17 @@ def simulate(status_time):
         create_route(truck)
 
     # 2- Initiate simulation, keeping track of the time
-    start_day(status_time)
+    simulate(status_time)
 
     # Status Report
-    # print("Status Report for ", pkgs.len, " packages:")
+    print("\n\n\nStatuses at ", status_time)
     for pkg in pkgs:
-        if not pkg.status.__contains__("Delivered"):
-            error = "Package #" + str(pkg.id) + " was undelivered at end of day."
-            # print(error)
-            raise Exception(error)
         print(pkg)
+    total_miles = 0
     for truck in trucks:
+        total_miles += truck.miles
         print("Truck", truck.id, "has driven", round(truck.miles, 1), "miles")
+    print("Total miles:", round(total_miles, 2))
 
     # Wait for user to continue
     print("Press enter to continue...", end='')
@@ -433,6 +435,7 @@ def get_truck_req(arg_1, arg_2):
     return None
 
 
+# Checks and updates packages based on their ready times, and updates available/unavailable locations
 def check_pkg_availability(time):
     global checkup_time
     global available_locs
@@ -643,7 +646,7 @@ def create_route(truck):
 
 
 # Launches the trucks on their route, keeping track of the time as they go
-def start_day(status_time):
+def simulate(status_time):
     clock = timedelta(days=99)
     t_clock = 0     # Which truck has the earliest clock
 
@@ -697,6 +700,7 @@ def start_day(status_time):
                 if unavailable_locs or available_locs:
                     # Try to reload & drive
                     if create_route(truck):
+                        print(clock)
                         pkg = truck.packages[0]
                         truck.drive(pkg.loc)
                     # If you can't, wait for available packages
@@ -772,22 +776,21 @@ while selection != 0:
           "Please make a selection:\n"
           "\t1. Run full simulation\n"
           "\t2. Show package statuses at a time\n"
-          "\t3. Display statuses at 12 pm\n"  # TODO delete
           "\t0. Exit")
     try:
-        selection = 1  # TODO int(input())
+        selection = int(input())
     except:
         print("\n\n\nBad choice, try again")
         continue
 
     if selection == 1:
-        simulate("End of Day")
+        setup("End of Day")
     elif selection == 2:
         print("Please input the time by hour and minute.\n"
               "Hour:\t", end='')
         hour = int(input())
         print("Minute:\t", end='')
         minute = int(input())
-        simulate(timedelta(hours=hour, minutes=minute))
+        setup(timedelta(hours=hour, minutes=minute))
     else:
         continue

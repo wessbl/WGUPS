@@ -32,6 +32,8 @@ class Truck:
         self.time += elapsed
 
     def load(self, pkg):
+        if len(self.packages) == self.max_packages:
+            raise Exception("Truck cannot carry any more packages!")
         self.packages.append(pkg)
         pkg.status = "On truck " + str(self.id)
 
