@@ -184,7 +184,7 @@ def dynamic_group_locs(time, locs=None):
         # Create arrays that have the same index for corresponding data (we have to do this every loop because the
         # centers change every time groups are merged, but their length is already small and decreases by 1 every time)
         centers = []  # Holds the ids of all top_groups centers
-        closest_ctr = []  # Holds closest center       closest_ctr[row][pair][vertex, distance]
+        closest_ctr = []  # Holds closest center       closest_ctr[row][pair](vertex, distance)
         distances = []  # Holds the first distance in the closest_ctr
 
         # Populate centers
@@ -201,42 +201,56 @@ def dynamic_group_locs(time, locs=None):
         min_d = min(distances)
         index_1 = distances.index(min_d)
         index_2 = centers.index(closest_ctr[index_1][0][0])
-
         # Get closest top groups a,b
-        a = small_groups.pop(index_1)
-        index_2 -= 1    # decrease to compensate for popping a off small_groups (a always comes first)
-        b = small_groups.pop(index_2)
+        a = small_groups[index_1]
+        b = small_groups[index_2]
 
-        # If the groups are not combinable (pkg_size limit or truck requirements), add back in the smaller group
-        if a.pkg_size + b.pkg_size > max_packages:
-            if a.pkg_size > b.pkg_size:
-                small_groups.append(b)
-                continue
+        # Get a new pair if the groups are not combinable (pkg_size limit or truck requirements)
+        while a.pkg_size + b.pkg_size > max_packages or a.truck != b.truck:
+            # There's a bad pairing, remove it from closest_centers and re-do distances
+            closest_ctr[index_1].pop(0)
+            if closest_ctr[index_1]:
+                distances[index_1] = closest_ctr[index_1][0][1]
+            # If there's no more pairings left for this group, remove it from everything
             else:
-                small_groups.append(a)
-                continue
+                small_groups.remove(a)
+                centers.pop(index_1)
+                closest_ctr.pop(index_1)
+                distances.pop(index_1)
+                index_2 -= 1    # Decrement because index_1, which is less than index_2, has been removed
 
-        # If the groups have an unmatched truck requirement, add one back in. Otherwise, group them
-        if a.truck != b.truck:
-            if a.truck:
-                small_groups.append(b)
-                continue
+            closest_ctr[index_2].pop(0)
+            if closest_ctr[index_2]:
+                distances[index_2] = closest_ctr[index_2][0][1]
+            # If there's no more pairings left for this group, remove it from everything
             else:
-                small_groups.append(a)
-                continue
-        else:
-            group = combine_groups(a, b)
+                small_groups.remove(b)
+                centers.pop(index_2)
+                closest_ctr.pop(index_2)
+                distances.pop(index_2)
 
-            # Add new group to small_groups if it's still small enough to be combined
-            if group.pkg_size + smallest_size <= max_packages:
-                small_groups.append(group)
+            # Find indexes for lowest distance, and the pair to the vertex with the lowest distance
+            min_d = min(distances)
+            index_1 = distances.index(min_d)
+            index_2 = centers.index(closest_ctr[index_1][0][0])
+            # Get closest top groups a,b
+            a = small_groups[index_1]
+            b = small_groups[index_2]
 
-            # Update smallest_size
-            if a.pkg_size == smallest_size or b.pkg_size == smallest_size:
-                smallest_size = group.pkg_size
-                for g in small_groups:
-                    smallest_size = min(smallest_size, g.pkg_size)
-            # print("Combined groups", a.id, ",", b.id, "at distance of", min(distances))  # Debug print
+        small_groups.remove(a)
+        small_groups.remove(b)
+        group = combine_groups(a, b)
+
+        # Add new group to small_groups if it's still small enough to be combined
+        if group.pkg_size + smallest_size <= max_packages:
+            small_groups.append(group)
+
+        # Update smallest_size
+        if a.pkg_size == smallest_size or b.pkg_size == smallest_size:
+            smallest_size = group.pkg_size
+            for g in small_groups:
+                smallest_size = min(smallest_size, g.pkg_size)
+        # print("Combined groups", a.id, ",", b.id, "at distance of", min(distances))  # Debug print
     return
 
 
@@ -268,8 +282,7 @@ def group_shortest_edges(ungrouped, fully_group, group_lookup={}):
             if fully_group:
                 # Add vertices to a group if one is still ungrouped
                 if ungrouped.__contains__(v1) or ungrouped.__contains__(v2):
-                    group = create_group(v1, v2, ungrouped, group_lookup)
-                    these_groups.append(group)
+                    these_groups = create_group(v1, v2, ungrouped, group_lookup)
                 # Combine groups if no location is ungrouped
                 if not ungrouped:
                     g1 = get_top_group(group_lookup[v1])
@@ -367,6 +380,8 @@ def combine_groups(g1, g2):
     group = LocGroup(get_group_num())
     group.add(g1)
     group.add(g2)
+    g1.part_of_group = group.id
+    g2.part_of_group = group.id
     group.truck = truck
     groups.append(group)
     if top_groups.__contains__(g1):
@@ -486,7 +501,7 @@ def create_route(truck):
     num_pkgs = 0
 
     # TODO Remove debug print
-    print("\nAvailable groups:")
+    print("\nTruck", truck.id, "arrived at hub. Available groups:")
     for group in top_groups:
         print(group.overview())
 
@@ -496,121 +511,121 @@ def create_route(truck):
             route_groups.append(group)
             num_pkgs += group.pkg_size
 
-    # If we have multiple groups, find the best group to keep
-    if len(route_groups) > 1 and num_pkgs > max_packages:
-        g1_time = timedelta(days=99)    # Since groups can have a None deltime, use an artificial "long" deltime
-        g2_time = timedelta(days=99)
-        best = None
-        for g1 in route_groups:
-            # Set g1_time
-            if g1.deltime:
-                g1_time = g1.deltime
-
-            # Compare deltimes between each group (only compare the same groups once)
-            for g2 in route_groups:
-                if g1 == g2:
-                    break
-                # Set g2_time
-                if g2.deltime:
-                    g2_time = g2.deltime
-                # Have best set to the group with the smallest time
-                if g1_time < g2_time:
-                    if not best:
-                        best = g1
-                    elif best.deltime and g1.deltime < best.deltime:
-                        best = g1
-                elif g1_time > g2_time:
-                    if not best:
-                        best = g2
-                    elif g2.deltime < best.deltime:
-                        best = g2
-            # Also give truck requirements priority     # TODO Balance between truck reqs and deltimes if needed
-            if g1.truck:
-                if not best or not best.truck:
-                    best = g1
-
-        # Re-do route_groups with only best & good groups
-        if best:
-            route_groups = [best]
-
-    # TODO remove debug statement
-    if route_groups:
-        print("Loaded Truck", truck.id, "with group: ", end='')
-        for g in route_groups:
-            print(g.id, "", end='')
-        print()
-    else:
-        print("Could not find a group for Truck", truck.id)
-
-    # Combine all route groups into one LocGroup
+    # If we have multiple groups, find the best group to keep (the soonest delivery time that has a truck req)
     route = None
-    if route_groups:
-        if len(route_groups) == 1:
-            route = route_groups[0]
+    if len(route_groups) > 1:
+        if num_pkgs > max_packages:
+            g1_time = timedelta(days=99)    # Since groups can have a None deltime, use an artificial "long" deltime
+            g2_time = timedelta(days=99)
+            best = None
+
+            # Find soonest delivery time
+            for g1 in route_groups:
+                # Set g1_time
+                if g1.deltime:
+                    g1_time = g1.deltime
+
+                # Compare deltimes between each group (only compare the same groups once)
+                for g2 in route_groups:
+                    if g1 == g2:
+                        break
+                    # Set g2_time
+                    if g2.deltime:
+                        g2_time = g2.deltime
+                    else:
+                        continue
+                    # Have best set to the group with the smallest time
+                    if g1_time < g2_time:
+                        if not best or not best.deltime or g1.deltime < best.deltime:
+                            best = g1
+                    elif g1_time > g2_time:
+                        if not best or not best.deltime or g2.deltime < best.deltime:
+                            best = g2
+
+                # Always give truck requirements priority
+                if g1.truck:
+                    if not best or not best.truck:
+                        best = g1
+
+            # Create the route
+            if best:
+                route = best
+            else:
+                route = route_groups[0]     # No timelies/truck reqs, so just assign it the first group
+
+        # If the truck can fit all packages
         else:
-            route = combine_groups(route_groups.pop(), route_groups.pop())
-            while len(route_groups) > 0:
-                route = combine_groups(route, route_groups.pop())
+            locs = []
+            for group in route_groups:
+                for loc in group.locs:
+                    locs.append(loc)
+            route = group_shortest_edges(locs, True)
 
-        # Large groups can have timely locations spread throughout the route. Re-do the route if this is the case
-        if len(route.locs) > 8 and route.pair[0].deltime and route.pair[1].deltime:  # TODO test with diff number locs
-            timelies = []
-            regulars = []
-            for loc in route.locs:
-                if map.locations[loc].deltime:
-                    timelies.append(loc)
-                else:
-                    regulars.append(loc)
+    # If only one route was selected in route_groups
+    else:
+        route = route_groups[0]
 
-            # Group all the timelies together, then the regulars in a separate group, then group them together
-            timelies = group_shortest_edges(timelies, True)
-            regulars = group_shortest_edges(regulars, True)
+    # For the last delivery, visit the timely locations first (at the expense of miles)
+    if checkup_time == timedelta(days=99) and len(route.locs) > 8 and route.pair[0].deltime and route.pair[1].deltime:
+        top_groups.remove(route)
+        timelies = []
+        regulars = []
+        for loc in route.locs:
+            if map.locations[loc].deltime:
+                timelies.append(loc)
+            else:
+                regulars.append(loc)
+
+        # Group all the timelies together, then the regulars in a separate group, then group them together
+        timelies = group_shortest_edges(timelies, True)
+        regulars = group_shortest_edges(regulars, True)
+        if regulars:
             route = combine_groups(timelies, regulars)
 
-        # Make a good path to traverse the route
-        route.make_path(0, map)
+    # Make a good path to traverse the route
+    route.make_path(0, map)
 
-        # Add all packages from all locations in the route
-        for loc in route.locs:
-            # If it's clustered, don't add unavailable packages, and keep the loc available if there are any
-            if map.locations[loc].clustered:
-                all_pkgs_loaded = True
-                for pkg in pkgs.loc_dictionary[loc]:
-                    pkg = pkgs.lookup(pkg)
-                    # Load all available packages, flag if there's one that's unavailable
-                    if not pkg.ready_at or pkg.ready_at <= truck.time:
-                        truck.packages.append(pkg)
-                    else:
-                        all_pkgs_loaded = False
-                if all_pkgs_loaded:
-                    map.locations[loc].routed = True
-                    available_locs.remove(loc)
-
-            # If it's not clustered, add all undelivered packages and make location unavailable  # TODO undelivered!
-            else:
-                for pkg in pkgs.loc_dictionary[loc]:
-                    pkg = pkgs.lookup(pkg)
-                    if pkg.ready_at and pkg.ready_at > truck.time:
-                        raise Exception("Loaded package that was unavailable!")
-                    # Check status and update if needed
-                    if pkg.status != "At Warehouse":
-                        stat = pkg.status
-                        if type(stat) == str:
-                            if stat.__contains__("Truck") or stat.__contains__(":"):
-                                truck.packages.append(pkg)
-                            else:
-                                raise Exception("Package #", pkg.id, "has a bad status: ", pkg.status)
-                        elif type(stat) == list:
-                            truck.packages.append(pkg)
-                        else:
-                            raise Exception("Package #", pkg.id, "has a bad status: ", pkg.status)
-                    else:
-                        truck.packages.append(pkg)
+    # Add all packages from all locations in the route
+    for loc in route.locs:
+        # If it's clustered, don't add unavailable packages, and keep the loc available if there are any
+        if map.locations[loc].clustered:
+            all_pkgs_loaded = True
+            for pkg in pkgs.loc_dictionary[loc]:
+                pkg = pkgs.lookup(pkg)
+                # Load all available packages, flag if there's one that's unavailable
+                if not pkg.ready_at or pkg.ready_at <= truck.time:
+                    truck.load(pkg)
+                else:
+                    all_pkgs_loaded = False
+            if all_pkgs_loaded:
                 map.locations[loc].routed = True
                 available_locs.remove(loc)
-        top_groups.remove(route)
-    print("Re-routed as", route.overview(), "\n")
 
+        # If it's not clustered, add all undelivered packages and make location unavailable
+        else:
+            for pkg in pkgs.loc_dictionary[loc]:
+                pkg = pkgs.lookup(pkg)
+                if pkg.ready_at and pkg.ready_at > truck.time:
+                    raise Exception("Loaded package that was unavailable!")
+                # Check status and update if needed
+                if pkg.status != "At Warehouse":
+                    stat = pkg.status
+                    if type(stat) == str:
+                        if stat.__contains__("Truck") or stat.__contains__(":"):
+                            truck.load(pkg)
+                        else:
+                            raise Exception("Package #", pkg.id, "has a bad status: ", pkg.status)
+                    elif type(stat) == list:
+                        truck.load(pkg)
+                    else:
+                        raise Exception("Package #", pkg.id, "has a bad status: ", pkg.status)
+                else:
+                    truck.load(pkg)
+            map.locations[loc].routed = True
+            available_locs.remove(loc)
+
+    print("Loaded truck", truck.id, "with", route.overview(), "\n")
+    top_groups.remove(route)
     return route
 
 
@@ -642,7 +657,7 @@ def start_day(status_time):
                 pkgs.loc_dictionary[pkg.loc].remove(pkg.id)
                 pkg.loc = None  # Ensures that pkg will not be delivered until address is updated
                 pkg.ready_at = timedelta(days=99)
-                truck.packages.append(pkg)  # Put package at end of list, truck will drop it off at hub
+                truck.load(pkg)  # Put package at end of list, truck will drop it off at hub
             else:
                 truck.unload()
                 pkgs.loc_dictionary[pkg.loc].remove(pkg.id)
@@ -661,7 +676,8 @@ def start_day(status_time):
                 # See if the truck has brought a package back
                 if truck.packages:
                     for pkg in truck.packages:
-                        print("\nTruck dropped off Package #", pkg.id, "at hub due to bad address")
+                        print("\nDropped off Package #", pkg.id, "at hub due to bad address")
+                        pkg.status = "At Warehouse"
                     truck.packages = []
 
                 # Check if more deliveries need to be made

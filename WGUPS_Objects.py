@@ -21,7 +21,6 @@ class Truck:
         self.speed = speed  # miles per hour
         self.max_packages = max_packages  # max amount of packages
         self.loc = 0  # current location
-        self.last_pkg_loc = 0  # the location of its last package
         self.packages = []  # an ordered list of packages (which define the route)
 
     # Drive the truck (adds time and mileage)
@@ -32,9 +31,8 @@ class Truck:
         elapsed = timedelta(hours=dist / self.speed)
         self.time += elapsed
 
-    def add_pkg(self, pkg):
+    def load(self, pkg):
         self.packages.append(pkg)
-        self.last_pkg_loc = pkg.loc
         pkg.status = "On truck " + str(self.id)
 
     def unload(self):
@@ -287,7 +285,7 @@ class Location:
 class LocGroup:
     def __init__(self, id):
         self.id = id
-        self.pair = []      # The two location entities that are paired by this group, may be an int or a LocGroup obj
+        self.pair = []      # The two location entities that are paired by this group, may be an Loc ID or a LocGroup
         self.locs = []      # The list of all locations that this group and other groups own
         self.size = 0
         self.pkg_size = 0           # How many packages are represented by this group
