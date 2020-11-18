@@ -80,9 +80,9 @@ def simulate(status_time):
     for pkg in pkgs:
         if not pkg.status.__contains__("Delivered"):
             error = "Package #" + str(pkg.id) + " was undelivered at end of day."
-            print(error)
-            # raise Exception(error)    # TODO
-    #     print(pkg)
+            # print(error)
+            raise Exception(error)
+        print(pkg)
     for truck in trucks:
         print("Truck", truck.id, "has driven", round(truck.miles, 1), "miles")
 
@@ -229,6 +229,10 @@ def dynamic_group_locs(time, locs=None):
                 closest_ctr.pop(index_2)
                 distances.pop(index_2)
 
+            # If we're finished combining all groups we can, centers will be empty
+            if not centers:
+                break
+
             # Find indexes for lowest distance, and the pair to the vertex with the lowest distance
             min_d = min(distances)
             index_1 = distances.index(min_d)
@@ -236,6 +240,10 @@ def dynamic_group_locs(time, locs=None):
             # Get closest top groups a,b
             a = small_groups[index_1]
             b = small_groups[index_2]
+
+        # If we're finished combining all groups we can, centers will be empty
+        if not centers:
+            break
 
         small_groups.remove(a)
         small_groups.remove(b)
@@ -440,11 +448,11 @@ def check_pkg_availability(time):
     # If this is the first checkup
     if time == start_time:
         for loc in map.locations:
-            # If the location has package that isn't ready
-            if loc.ready_at and loc.ready_at > time:
-                if checkup_time:
+            # If the location has package that isn't ready, or if it doesn't have a deltime
+            if loc.ready_at and loc.ready_at > time or not loc.deltime:
+                if checkup_time and loc.ready_at:
                     checkup_time = loc.ready_at
-                else:
+                elif loc.ready_at:
                     checkup_time = min(checkup_time, loc.ready_at)
                 unavailable_locs.append(loc.id)
 
@@ -452,24 +460,26 @@ def check_pkg_availability(time):
             else:
                 available_locs.append(loc.id)
         # Remove home location
-        available_locs.pop(0)
+        unavailable_locs.pop(0)
 
     # If this is a midday checkup
     else:
+        # Update checkup_time
+        if checkup_time <= time:
+            checkup_time = timedelta(days=99)
+            for loc in unavailable_locs:
+                loc = map.locations[loc]
+                if loc.ready_at and loc.ready_at > time:
+                    checkup_time = min(checkup_time, loc.ready_at)
+
+        # Update locations
         for loc in map.locations:
             # For unavailable locations
             if unavailable_locs.__contains__(loc.id):
                 # If it's now ready, move to available locations
-                if loc.ready_at <= time:
+                if loc.ready_at and loc.ready_at <= time or checkup_time == timedelta(days=99):
                     available_locs.append(loc.id)
                     unavailable_locs.remove(loc.id)
-
-                # If the location is still not ready, update checkup time
-                else:
-                    if checkup_time <= time:
-                        checkup_time = loc.ready_at
-                    else:
-                        checkup_time = min(checkup_time, loc.ready_at)
 
             # For available locations, remove fully delivered locs and update others
             elif loc.routed and available_locs.__contains__(loc.id):
@@ -489,9 +499,6 @@ def check_pkg_availability(time):
                 loc.deltime = deltime
                 loc.truck = truck
 
-            if len(unavailable_locs) == 0:
-                if checkup_time <= time:
-                    checkup_time = timedelta(days=99)
     return
 
 
@@ -500,10 +507,10 @@ def create_route(truck):
     route_groups = []
     num_pkgs = 0
 
-    # TODO Remove debug print
-    print("\nTruck", truck.id, "arrived at hub. Available groups:")
-    for group in top_groups:
-        print(group.overview())
+    # Debug print
+    # print("\nTruck", truck.id, "arrived at hub. Available groups:")
+    # for group in top_groups:
+    #     print(group.overview())
 
     # Add package groups with correct truck requirements
     for group in top_groups:
@@ -562,8 +569,11 @@ def create_route(truck):
             route = group_shortest_edges(locs, True)
 
     # If only one route was selected in route_groups
-    else:
+    elif route_groups:
         route = route_groups[0]
+    else:
+        # print("\nCould not find a suitable group for Truck", truck.id, "\n")
+        return
 
     # For the last delivery, visit the timely locations first (at the expense of miles)
     if checkup_time == timedelta(days=99) and len(route.locs) > 8 and route.pair[0].deltime and route.pair[1].deltime:
@@ -599,7 +609,10 @@ def create_route(truck):
                     all_pkgs_loaded = False
             if all_pkgs_loaded:
                 map.locations[loc].routed = True
-                available_locs.remove(loc)
+                if available_locs.__contains__(loc):
+                    available_locs.remove(loc)
+                else:
+                    unavailable_locs.remove(loc)    # Remove clustered pkg w/ no deltime, marked as unavailable
 
         # If it's not clustered, add all undelivered packages and make location unavailable
         else:
@@ -624,7 +637,7 @@ def create_route(truck):
             map.locations[loc].routed = True
             available_locs.remove(loc)
 
-    print("Loaded truck", truck.id, "with", route.overview(), "\n")
+    # print("Loaded truck", truck.id, "with", route.overview(), "\n")
     top_groups.remove(route)
     return route
 
@@ -676,12 +689,12 @@ def start_day(status_time):
                 # See if the truck has brought a package back
                 if truck.packages:
                     for pkg in truck.packages:
-                        print("\nDropped off Package #", pkg.id, "at hub due to bad address")
+                        # print("\nDropped off Package #", pkg.id, "at hub due to bad address")
                         pkg.status = "At Warehouse"
                     truck.packages = []
 
                 # Check if more deliveries need to be made
-                if len(top_groups):
+                if unavailable_locs or available_locs:
                     # Try to reload & drive
                     if create_route(truck):
                         pkg = truck.packages[0]
@@ -731,7 +744,7 @@ def start_day(status_time):
                 if trucks[t - 1] != truck:
                     truck = trucks[truck - 1]
                 dynamic_group_pkgs(truck)
-            print("\nUpdated address for Pkg 9, ready for delivery\n")
+            # print("\nUpdated address for Pkg 9, ready for delivery\n")
             dynamic_group_locs(clock)
 
         # Check for package updates (arrived at hub or # TODO address update)

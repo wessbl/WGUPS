@@ -38,13 +38,13 @@ class Truck:
     def unload(self):
         pkg = self.packages.pop(0)
         pkg.status = "Delivered at " + str(self.time)
-        print("Truck", str(self.id), "delivered Pkg", str(pkg.id), "\tto Loc", pkg.loc,
-              "\tat", str(self.time), "\twith", round(self.miles, 1), "miles")
+        # print("Truck", str(self.id), "delivered Pkg", str(pkg.id), "\tto Loc", pkg.loc,
+        #       "\tat", str(self.time), "\twith", round(self.miles, 1), "miles")
         if pkg.deltime and pkg.deltime < self.time:
             error = "Truck " + str(self.id) + " delivered pkg " + str(pkg.id) + " at " + str(self.time) + \
                     ", it was due at " + str(pkg.deltime)
-            print(error)
-            # raise Exception(error)    # TODO raise exception instead
+            # print(error)
+            raise Exception(error)
         if pkg.truck and pkg.truck != self.id:
             raise Exception("Wrong truck delivered package", pkg.id, ", requires truck", pkg.truck)
 
@@ -100,9 +100,11 @@ class Package:
         # print("Pkg", self.id, "has deadline at", self.deltime)
 
     def __str__(self):
-        string = "Pkg#" + str(self.id) + ": " + self.status + ". Loc " + str(self.loc) + " @ " + str(self.deltime)
+        string = "Package #" + str(self.id) + ": " + self.status + " at location " + str(self.loc) + ". "
+        if self.deltime:
+            string += "\tRequired delivery time at " + str(self.deltime) + "."
         if self.cluster:
-            string += " Clustered"
+            string += "\tClustered with packages " + str(self.cluster)
         return string
 
 
