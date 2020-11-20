@@ -36,11 +36,11 @@ unavailable_locs = []   # A list of locations that have an unavailable package
 checkup_time = timedelta(days=99)   # A time to check on our unavailable packages
 full_cluster = []
 
-
 # * * * * *   Simulate Function   * * * * * #
 # Simulates the WGUPS workday, printing package status updates between 2 given times. This function
 # is the "clock" of the simulation, its only logic is to make sure the timeline is correct. Other functions are used for
 # the actual algorithm
+# Big-O: O(n^3)
 def setup(status_time):
     global pkgs
     global trucks
@@ -58,11 +58,11 @@ def setup(status_time):
     pkgs = PkgHashTable(16)
     load_pkgs(pkgs)
 
-    # Get all of the cluster to hold the same data
+    # Get all of the cluster to hold the same data O(n)
     cluster = None
     for pkg in pkgs:
         if manage_clusters(pkg):
-            cluster = manage_clusters(pkg)
+            cluster = manage_clusters(pkg)  # We do it twice so the entire cluster has the same data
     if cluster:
         for pkg in cluster:
             pkg = pkgs.lookup(pkg)
@@ -71,9 +71,9 @@ def setup(status_time):
         full_cluster = cluster
 
     # 1- Group locations and load trucks with their packages
-    dynamic_group_locs(start_time)
+    group_locs(start_time)
     for truck in trucks:
-        create_route(truck)
+        create_route(truck)  # O(n^3)
 
     # 2- Initiate simulation, keeping track of the time
     simulate(status_time)
@@ -95,6 +95,7 @@ def setup(status_time):
 
 
 # A recursive algorithm that manages package clusters
+# Big-O: O(n)
 def manage_clusters(given, cluster=None, visited=None):
     # If this package's cluster is None
     if not given.cluster:
@@ -126,8 +127,9 @@ def manage_clusters(given, cluster=None, visited=None):
     return cluster
 
 
-# The dynamic algorithm that assigns packages based on location
-def dynamic_group_locs(time, locs=None):
+# The algorithm that assigns packages based on location
+# Big-O: O(n^3)
+def group_locs(time, locs=None):
     # Create variables needed for this method
     global full_cluster
     group_lookup = {}  # A dictionary of all group objects, with all ids pointing to their group
@@ -162,10 +164,10 @@ def dynamic_group_locs(time, locs=None):
             if ungrouped.__contains__(pkg.loc):
                 ungrouped.remove(pkg.loc)
         full_cluster = None
-        dynamic_group_locs(time, cluster_locs)  # Group only the cluster locs
+        group_locs(time, cluster_locs)  # Group only the cluster locs
 
     # Make sure all locations are in a group, starting with shortest edges
-    group_shortest_edges(ungrouped, False, group_lookup)
+    group_shortest_edges(ungrouped, False, group_lookup)    # O(n^3)
 
     # Make a new array of small groups that we can remove when they become too large in next block
     small_groups = []
@@ -181,7 +183,7 @@ def dynamic_group_locs(time, locs=None):
         if group.pkg_size + smallest_size > max_packages:
             small_groups.remove(group)
 
-    # Combine groups when able
+    # Combine groups when able; O(n^3)
     while len(small_groups) > 1:
         # Create arrays that have the same index for corresponding data (we have to do this every loop because the
         # centers change every time groups are merged, but their length is already small and decreases by 1 every time)
@@ -249,7 +251,7 @@ def dynamic_group_locs(time, locs=None):
 
         small_groups.remove(a)
         small_groups.remove(b)
-        group = combine_groups(a, b)
+        group = combine_groups(a, b)    # O(n^2)
 
         # Add new group to small_groups if it's still small enough to be combined
         if group.pkg_size + smallest_size <= max_packages:
@@ -265,11 +267,13 @@ def dynamic_group_locs(time, locs=None):
 
 
 # Takes a list of locations and groups by shortest edges
+# Big-O: O(n^3)
 def group_shortest_edges(ungrouped, fully_group, group_lookup={}):
+    print("\n\nCalled group_shortest_edges\n\n")
     these_groups = []
     # Sort edges by length
     edges = {}  # A dictionary that maps edge lengths to all vertex pairs with that length. edges[7.1]:[[2,1], [17,16]]
-    # Traverse all distances diagonally, so that row is always greater than col
+    # Traverse all distances diagonally, so that row is always greater than col, O(n^2)
     for v1 in ungrouped:
         for v2 in ungrouped:
             if v2 == v1:
@@ -279,9 +283,9 @@ def group_shortest_edges(ungrouped, fully_group, group_lookup={}):
                 edges[key].append([v1, v2])
             else:
                 edges[key] = [[v1, v2]]
-    keys = sorted(edges.keys())
+    keys = sorted(edges.keys())     # O(n log n)
 
-    # Group shortest edges
+    # Group shortest edges; O(n^3)
     for length in keys:  # We won't actually visit all edges
         # Extract each vertex with this length
         vertices = edges[length]
@@ -292,17 +296,17 @@ def group_shortest_edges(ungrouped, fully_group, group_lookup={}):
             if fully_group:
                 # Add vertices to a group if one is still ungrouped
                 if ungrouped.__contains__(v1) or ungrouped.__contains__(v2):
-                    these_groups = create_group(v1, v2, ungrouped, group_lookup)
+                    these_groups = create_group(v1, v2, ungrouped, group_lookup)    # O(n^2)
                 # Combine groups if no location is ungrouped
                 if not ungrouped:
-                    g1 = get_top_group(group_lookup[v1])
+                    g1 = get_top_group(group_lookup[v1])                        # O(n)
                     g2 = get_top_group(group_lookup[v2])
                     if g1 is not g2:
                         these_groups = combine_groups(g1, g2)  # If fully_group, we only need the top group
             else:
                 # Add vertices to a group if one is still ungrouped
                 if ungrouped.__contains__(v1) or ungrouped.__contains__(v2):
-                    group = create_group(v1, v2, ungrouped, group_lookup)
+                    group = create_group(v1, v2, ungrouped, group_lookup)    # O(n^2)
                     these_groups.append(group)
 
             # Added. Now check if we need to escape loops
@@ -316,6 +320,7 @@ def group_shortest_edges(ungrouped, fully_group, group_lookup={}):
 
 # A method that adds two locations to a single group, or groups one vertex with another group. l1 and l2 must be
 # location IDs. Combines groups, do not use on a loop!
+# Big-O: O(n^2)
 def create_group(l1, l2, ungrouped=[], group_lookup=None):
 
     # Add the two objects in one group
@@ -381,6 +386,7 @@ def create_group(l1, l2, ungrouped=[], group_lookup=None):
 
 
 # A method that combines two different groups into a single group. Differs from create_group because it requires groups
+# Big-O: O(n^2)
 def combine_groups(g1, g2):
     if g1 == g2:
         return g1
@@ -403,6 +409,7 @@ def combine_groups(g1, g2):
 
 
 # Helper method for adding vertexes to groups
+# Big-O: O(n)
 def get_top_group(group):
     while group.part_of_group is not None:
         top = group.part_of_group
@@ -411,6 +418,7 @@ def get_top_group(group):
 
 
 # A simple method to increment and return the group_num
+# Big-O: O(1)
 def get_group_num():
     global group_num
     group_num += 1
@@ -418,6 +426,7 @@ def get_group_num():
 
 
 # A method to get the truck requirements from 2 items. Args may be a Location or a LocGroup
+# Big-O: O(1)
 def get_truck_req(arg_1, arg_2):
     truck_1 = arg_1.truck
     truck_2 = arg_2.truck
@@ -436,6 +445,7 @@ def get_truck_req(arg_1, arg_2):
 
 
 # Checks and updates packages based on their ready times, and updates available/unavailable locations
+# Big-O: O(n)
 def check_pkg_availability(time):
     global checkup_time
     global available_locs
@@ -506,6 +516,7 @@ def check_pkg_availability(time):
 
 
 # Creates a route from top_groups for a truck with a given id
+# Big-O: O(n^3)
 def create_route(truck):
     route_groups = []
     num_pkgs = 0
@@ -529,7 +540,7 @@ def create_route(truck):
             g2_time = timedelta(days=99)
             best = None
 
-            # Find soonest delivery time
+            # Find soonest delivery time; O(n^2), but probably a fraction of O(n) in practice
             for g1 in route_groups:
                 # Set g1_time
                 if g1.deltime:
@@ -569,7 +580,7 @@ def create_route(truck):
             for group in route_groups:
                 for loc in group.locs:
                     locs.append(loc)
-            route = group_shortest_edges(locs, True)
+            route = group_shortest_edges(locs, True)    # O(n^3)
 
     # If only one route was selected in route_groups
     elif route_groups:
@@ -578,27 +589,10 @@ def create_route(truck):
         # print("\nCould not find a suitable group for Truck", truck.id, "\n")
         return
 
-    # For the last delivery, visit the timely locations first (at the expense of miles)
-    if checkup_time == timedelta(days=99) and len(route.locs) > 8 and route.pair[0].deltime and route.pair[1].deltime:
-        top_groups.remove(route)
-        timelies = []
-        regulars = []
-        for loc in route.locs:
-            if map.locations[loc].deltime:
-                timelies.append(loc)
-            else:
-                regulars.append(loc)
-
-        # Group all the timelies together, then the regulars in a separate group, then group them together
-        timelies = group_shortest_edges(timelies, True)
-        regulars = group_shortest_edges(regulars, True)
-        if regulars:
-            route = combine_groups(timelies, regulars)
-
     # Make a good path to traverse the route
-    route.make_path(0, map)
+    route.make_path(0, map)     # O(n log n)
 
-    # Add all packages from all locations in the route
+    # Add all packages from all locations in the route; O(n)
     for loc in route.locs:
         # If it's clustered, don't add unavailable packages, and keep the loc available if there are any
         if map.locations[loc].clustered:
@@ -646,6 +640,7 @@ def create_route(truck):
 
 
 # Launches the trucks on their route, keeping track of the time as they go
+# Big-O: O(n^3)
 def simulate(status_time):
     clock = timedelta(days=99)
     t_clock = 0     # Which truck has the earliest clock
@@ -658,7 +653,7 @@ def simulate(status_time):
             clock = truck.time
             t_clock = truck.id
 
-    # Have truck with earliest time drive to next delivery
+    # Have truck with earliest time deliver and start driving to next delivery    # O(n^3)
     while clock != timedelta(days=99) and clock < status_time:
 
         # Deliver all packages in our truck's location
@@ -666,6 +661,7 @@ def simulate(status_time):
         pkg = None
         if truck.packages:
             pkg = truck.packages[0]
+        # Unload each package on the truck; O(n)
         while truck.packages and truck.loc == pkg.loc:
             # Check for package #9, which has the wrong address
             if pkg.id == 9 and pkg.loc == 12:
@@ -689,7 +685,7 @@ def simulate(status_time):
 
             # If at the warehouse
             else:
-                # See if the truck has brought a package back
+                # See if the truck has brought a package back; O(n)
                 if truck.packages:
                     for pkg in truck.packages:
                         # print("\nDropped off Package #", pkg.id, "at hub due to bad address")
@@ -747,21 +743,28 @@ def simulate(status_time):
                 # Check if the truck with Pkg 9 is currently in transit (not held by 'truck')
                 if trucks[t - 1] != truck:
                     truck = trucks[truck - 1]
-                dynamic_group_pkgs(truck)
+                group_pkgs(truck)   # O(n^3)
             # print("\nUpdated address for Pkg 9, ready for delivery\n")
-            dynamic_group_locs(clock)
+            group_locs(clock)
 
-        # Check for package updates (arrived at hub or # TODO address update)
+        # Check for package updates (arrived at hub or address update)
         if checkup_time <= clock:
-            dynamic_group_locs(checkup_time)
+            group_locs(checkup_time)
+    return
 
 
 # A method for re-routing a truck while it's already making deliveries
-def dynamic_group_pkgs(truck):
+# Big-O: O(n^3)
+def group_pkgs(truck):
     locs = []
     for pkg in truck.packages:
         if not locs.__contains__(pkg.loc):
             locs.append(pkg.loc)
+    group = group_shortest_edges(locs, True)    # O(n^3)
+    group.make_path(truck.loc, map)             # O(n log n)
+    for loc in group.locs:
+        for pkg in pkgs.loc_dictionary[loc]:
+            truck.packages.append(pkgs.lookup(pkg))
 
 
 # * * * * *   Main Menu   * * * * * #

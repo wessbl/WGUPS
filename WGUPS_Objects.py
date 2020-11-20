@@ -1,19 +1,14 @@
 # Author:           Wesley Lancaster
 # StudentID:        #001356953
 # Date:             September 2020
-# WGUPS_Objects.py: Defines all objects and classes necessary for the project
+# WGUPS_Objects.py: Defines all objects and classes (and related methods) necessary for the project
 
 from datetime import timedelta
 
 
-# A class that represents a Truck object, with
-#   id (int)
-#   route (list of ints)
-#   packages (list of ints that each represent a package in the package hash table)
-#   time (datetime)
-#   miles (double)
+# A class that represents a delivery truck, loads packages, drives, and delivers
 class Truck:
-    # Ctor, start time at 8
+    # Ctor, start time at 8; O(1)
     def __init__(self, id, speed, max_packages, start_time):
         self.id = id
         self.time = start_time  # start at 8 am
@@ -23,7 +18,7 @@ class Truck:
         self.loc = 0  # current location
         self.packages = []  # an ordered list of packages (which define the route)
 
-    # Drive the truck (adds time and mileage)
+    # Drive the truck (adds time and mileage); O(1)
     def drive(self, location):
         dist = Map.distances[self.loc][location]
         self.loc = location
@@ -31,17 +26,19 @@ class Truck:
         elapsed = timedelta(hours=dist / self.speed)
         self.time += elapsed
 
+    # Loads the package onto the truck; O(1)
     def load(self, pkg):
         if len(self.packages) == self.max_packages:
             raise Exception("Truck cannot carry any more packages!")
         self.packages.append(pkg)
         pkg.status = "On truck " + str(self.id)
 
+    # Unloads a package at its destination, ; O(1)
     def unload(self):
         pkg = self.packages.pop(0)
         pkg.status = "Delivered at " + str(self.time)
-        # print("Truck", str(self.id), "delivered Pkg", str(pkg.id), "\tto Loc", pkg.loc,
-        #       "\tat", str(self.time), "\twith", round(self.miles, 1), "miles")
+        print("Truck", str(self.id), "delivered Pkg", str(pkg.id), "\tto Loc", pkg.loc,
+              "\tat", str(self.time), "\twith", round(self.miles, 1), "miles")
         if pkg.deltime and pkg.deltime < self.time:
             error = "Truck " + str(self.id) + " delivered pkg " + str(pkg.id) + " at " + str(self.time) + \
                     ", it was due at " + str(pkg.deltime)
@@ -50,20 +47,14 @@ class Truck:
         if pkg.truck and pkg.truck != self.id:
             raise Exception("Wrong truck delivered package", pkg.id, ", requires truck", pkg.truck)
 
-    # Truck info in one string
+    # Truck info in one string; O(1)
     def __str__(self):
         return "Truck " + str(self.id) + " at " + str(self.time) + ": " + str(round(self.miles, 2)) + " miles"
 
 
-# A class that represents a Package needing to be delivered, with
-#   id (int)
-#   loc (int representing a Location obj in the Map class)
-#   deadline (time)
-#   mass (int)
-#   truck (int)
-#   arrival_time (time)
-#   delivery_time (time)
+# A class that represents a Package needing to be delivered
 class Package:
+    # Constructor; O(1)
     def __init__(self, id, address, city, zip, deadline, mass, status):
         self.id = id
         self.mass = mass
@@ -94,13 +85,12 @@ class Package:
             for i in status:
                 self.cluster.append(i)
 
-        # Find out if the package is part of a delivery group
-
         # Parse deadline, which is in form "10:30 am" or "EOD" (end of day)
         self.deltime = get_time(deadline)
         Map.locations[self.loc].add_deltime(self.deltime)
         # print("Pkg", self.id, "has deadline at", self.deltime)
 
+    # Simple to string; O(1)
     def __str__(self):
         string = "Package #" + str(self.id) + ": " + self.status + " at location " + str(self.loc) + ". "
         if self.deltime:
@@ -110,7 +100,7 @@ class Package:
         return string
 
 
-# Given a string time, return a timedelta. Returns None if string was not valid
+# Given a string time, return a timedelta. Returns None if string was not valid; O(1)
 def get_time(str_time):
     if type(str_time) == set:
         return None
@@ -149,7 +139,6 @@ class PkgHashTable:
 
     # Insert a new node onto the hash table
     def insert(self, id, address, city, zip, deadline, mass, status="At Warehouse"):
-        # TODO Check status for package group
         # if type(status) == set:
         #     self.groups[id] = status
         #     status = "At Warehouse"
@@ -255,13 +244,8 @@ def load_pkgs(pkgs):
     pkgs.insert(40, "380 W 2880 S", "Salt Lake City", "84115", "10:30 AM", 45)                              # Loc 18
 
 
-# A class that represents a location to deliver a package to, with
-#   id (int)
-#   name (string)
-#   address (string)
+# A class that represents a location to deliver a package to
 class Location:
-    """A location object with ID, name, and address at minimum"""
-
     def __init__(self, id, name, address, zip):
         self.id = id
         self.name = name
@@ -300,7 +284,7 @@ class LocGroup:
         self.dividable = True
         self.truck = None
 
-    # Add a location or group of locations to the group
+    # Add a location or group of locations to the group; O(n^2)
     def add(self, loc, pkgs_added=0, truck_requirement=None, deltime=None):
         self.pair.append(loc)
         self.truck = truck_requirement
@@ -316,7 +300,6 @@ class LocGroup:
             self.pkg_size += pkgs_added
             self.locs.append(loc)
 
-        # TODO Define a group-wide delivery time
         if type(loc) == LocGroup:
             if self.deltime is None or loc.deltime and loc.deltime < self.deltime:
                 self.deltime = loc.deltime
@@ -345,10 +328,11 @@ class LocGroup:
             # Get the key holding the minimal value
             keys = list(verts.keys())
             values = list(verts.values())
-            min = sorted(values)[0]
+            min = sorted(values)[0]     # O(n log n)
             self.center = keys[values.index(min)]   # Get index of minimum value, then use it to look up the key
 
-    # Once vertices are finalized for the group, call this method to make the path within this group. Updates locs
+    # Once vertices are finalized for the group, call this method to make the path within this group. Updates locs.
+    # O(n log n)
     def make_path(self, from_vertex, map):
         # There is a small chance that this group only has one location, check for this occurrence
         if len(self.pair) == 1 and type(self.pair[0]) == int:
@@ -378,7 +362,7 @@ class LocGroup:
         # Check if we need to swap the order of the pair, for timeliness or closeness. The pair is treated like [a, b]
         # Compare the distance from the given vertex to each member of the pair, set a_closer = (a is closer than b?)
         swapped = False
-        distances = map.min_dist(from_vertex, [first, second])
+        distances = map.min_dist(from_vertex, [first, second])  # O(n log n)
         if distances[0][0] == second:
             a_closer = False
         else:
@@ -600,7 +584,7 @@ class Map:
     ]
 
     # Fill out the adjacency matrix for easier use later, also get the avg length and create groups for shortest lengths
-    # for every vertex
+    # for every vertex; O(n^2)
     def __init__(self):
         self.avg_len = 0.0
         size = len(self.distances)
@@ -615,6 +599,7 @@ class Map:
 
     # Return a list of tuples (index, dist) for indexes adjacent to the given location.
     # Option to give a list of indexes for desired adjacent locations. Ignores distance to self
+    # Big-O: O(n log n)
     def min_dist(self, x, adj_list=[]):
         adj_dict = {}
         # If a list was provided
@@ -627,7 +612,7 @@ class Map:
             for i in range(len(self.distances)):
                 if i != x:
                     adj_dict[i] = self.distances[x][i]
-        return sorted(adj_dict.items(), key=lambda x: x[1])
+        return sorted(adj_dict.items(), key=lambda x: x[1])     # O(n log n)
 
     # Looks up address and zip for a match, then returns a location id if a match is found
     @staticmethod
